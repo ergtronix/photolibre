@@ -1,0 +1,31 @@
+# 環境変数・機密情報
+.env
+*.key
+secret.json
+config.local.json
+
+# 実写真データ・アーカイブ（このリポジトリの外に置く運用のため、誤って混入した場合の保険）
+archive/
+
+# OS生成ファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタ
+.vscode/
+.idea/
+
+# Node.js（viewer/）
+node_modules/
+dist/
+
+# Rust / Tauri（viewer/src-tauri/）
+target/
+
+# Python（importer/）
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+htmlcov/
