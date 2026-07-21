@@ -106,3 +106,45 @@ def link_album_photo(conn: sqlite3.Connection, album_id: str, photo_id: str) -> 
         (album_id, photo_id),
     )
     conn.commit()
+
+
+def finalize_duplicate(
+    conn: sqlite3.Connection,
+    canonical_photo_id: str,
+    duplicate_photo_id: str,
+    duplicate_relpath: str,
+    original_source_relpath: str,
+    sha256: str,
+    detected_at: str,
+) -> None:
+    """重複と判定された写真のphotos行を取り除きつつ、そのアルバム所属を
+    正本(canonical)へ引き継ぐ。物理ファイルはarchive/_duplicates/へ既に
+    退避済みである前提（削除はしない）。"""
+    album_ids = [
+        row[0]
+        for row in conn.execute(
+            "SELECT album_id FROM album_photos WHERE photo_id = ?", (duplicate_photo_id,)
+        ).fetchall()
+    ]
+    for album_id in album_ids:
+        conn.execute(
+            """
+            INSERT INTO album_photos (album_id, photo_id)
+            VALUES (?, ?)
+            ON CONFLICT (album_id, photo_id) DO NOTHING
+            """,
+            (album_id, canonical_photo_id),
+        )
+
+    conn.execute("DELETE FROM album_photos WHERE photo_id = ?", (duplicate_photo_id,))
+    conn.execute("DELETE FROM photos WHERE id = ?", (duplicate_photo_id,))
+
+    conn.execute(
+        """
+        INSERT INTO duplicates
+            (canonical_photo_id, duplicate_path, original_source_path, sha256, detected_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (canonical_photo_id, duplicate_relpath, original_source_relpath, sha256, detected_at),
+    )
+    conn.commit()

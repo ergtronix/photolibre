@@ -42,9 +42,13 @@ def _build_fake_source_a(root: Path) -> None:
 
 
 def _build_fake_source_b(root: Path) -> None:
+    # 実際のSOURCEBコピーは `rsync .../Originals/ /Volumes/SOURCEB/source_b_iphoto/`
+    # （末尾スラッシュ）のため、Originals/配下の中身がsource_b_iphoto直下に展開される。
+    # AlbumData.xml内のImagePathは移行前のiPhoto Library表記の絶対パスのまま保持されるため、
+    # "Originals/"を含む体で記述し、パース時にその接頭辞を取り除いた相対パスと突き合わせる。
     root.mkdir(parents=True)
-    (root / "Originals" / "2008" / "05").mkdir(parents=True)
-    (root / "Originals" / "2008" / "05" / "IMG_0001.jpg").write_bytes(b"fake iphoto bytes")
+    (root / "2008" / "05").mkdir(parents=True)
+    (root / "2008" / "05" / "IMG_0001.jpg").write_bytes(b"fake iphoto bytes")
 
     plist = {
         "Master Image List": {
@@ -53,7 +57,7 @@ def _build_fake_source_b(root: Path) -> None:
                 "Rating": 0,
                 "Roll": 100,
                 "DateAsTimerInterval": 0.0,
-                "ImagePath": (root / "Originals" / "2008" / "05" / "IMG_0001.jpg").as_posix(),
+                "ImagePath": "/Users/kh/Pictures/iPhoto Library/Originals/2008/05/IMG_0001.jpg",
             }
         }
     }
@@ -84,7 +88,7 @@ def test_full_read_pipeline_never_modifies_raw_source_trees(tmp_path):
     plist = load_album_data(source_b_root / "AlbumData.xml")
     photos_b = parse_photos(plist)
     for photo in photos_b:
-        source_file = source_b_root / "Originals" / photo.relative_path
+        source_file = source_b_root / photo.relative_path
         place_photo(source_file, archive_root, None)
 
     assert_tree_unchanged(source_a_root, before_a)

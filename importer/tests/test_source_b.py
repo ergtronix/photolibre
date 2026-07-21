@@ -92,9 +92,34 @@ def test_parse_photos_maps_core_fields_and_defaults_missing_keywords():
     assert photo_1.roll_id == "100"
     assert photo_1.date_taken == datetime(2001, 1, 1, tzinfo=timezone.utc)
     assert photo_1.keywords == []  # Keywordsフィールドが存在しない場合は空リスト
+    assert photo_1.used_original_fallback is False
 
     photo_2 = next(p for p in photos if p.photo_id == "2")
     assert photo_2.keywords == ["2"]
+
+
+def test_parse_photos_falls_back_to_original_path_when_image_path_is_a_modified_variant():
+    # iPhotoで編集された写真は ImagePath が Modified/ 配下を指し、
+    # 未編集オリジナルへのパスは OriginalPath に別途保持される。
+    # SOURCEBコピーはOriginals/のみのため、この場合は OriginalPath 側を採用する。
+    plist = {
+        "Master Image List": {
+            "3": {
+                "MediaType": "Image",
+                "Roll": 1,
+                "DateAsTimerInterval": 231558775.0,
+                "ImagePath": "/Users/kh/Pictures/iPhoto Library/Modified/2008/20080504/IMG_0005.JPG",
+                "OriginalPath": "/Users/kh/Pictures/iPhoto Library/Originals/2008/20080504/IMG_0005.JPG",
+            }
+        }
+    }
+
+    photos = parse_photos(plist)
+
+    assert len(photos) == 1
+    photo = photos[0]
+    assert photo.relative_path == Path("2008/20080504/IMG_0005.JPG")
+    assert photo.used_original_fallback is True
 
 
 def test_load_album_data_reads_plist_file_readonly(tmp_path):

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from photolibre_importer.integrate import (
+    finalize_duplicate,
     link_album_photo,
     record_album,
     record_source_a_photo,
@@ -124,3 +125,70 @@ def test_link_album_photo_creates_association(conn):
         (album_id, "UUID-1"),
     ).fetchone()
     assert row == (album_id, "UUID-1")
+
+
+def test_finalize_duplicate_migrates_album_links_and_removes_duplicate_row(conn):
+    canonical = _source_a_photo(uuid="CANON")
+    duplicate = _source_b_photo(photo_id="99")
+    record_source_a_photo(conn, canonical, filepath="canon.jpg", sha256="same-hash", imported_at="t")
+    duplicate_id = record_source_b_photo(
+        conn, duplicate, filepath="dup.jpg", sha256="same-hash", imported_at="t"
+    )
+    album_id = record_album(conn, name="iPhotoイベント", source="source_b")
+    link_album_photo(conn, album_id=album_id, photo_id=duplicate_id)
+
+    finalize_duplicate(
+        conn,
+        canonical_photo_id="CANON",
+        duplicate_photo_id=duplicate_id,
+        duplicate_relpath="_duplicates/dup.jpg",
+        original_source_relpath="dup.jpg",
+        sha256="same-hash",
+        detected_at="2026-07-21T00:00:00",
+    )
+
+    # 重複写真のphotos行は削除される（ファイル実体は_duplicates/へ移動済みのため）
+    remaining = conn.execute(
+        "SELECT id FROM photos WHERE id = ?", (duplicate_id,)
+    ).fetchone()
+    assert remaining is None
+
+    # アルバム所属は正本へ引き継がれ、失われない
+    row = conn.execute(
+        "SELECT album_id, photo_id FROM album_photos WHERE album_id = ? AND photo_id = ?",
+        (album_id, "CANON"),
+    ).fetchone()
+    assert row == (album_id, "CANON")
+
+    # duplicatesテーブルに正本との対応関係が記録される
+    dup_row = conn.execute(
+        "SELECT canonical_photo_id, duplicate_path, original_source_path, sha256 FROM duplicates"
+    ).fetchone()
+    assert dup_row == ("CANON", "_duplicates/dup.jpg", "dup.jpg", "same-hash")
+
+
+def test_finalize_duplicate_does_not_duplicate_album_link_already_on_canonical(conn):
+    canonical = _source_a_photo(uuid="CANON")
+    duplicate = _source_b_photo(photo_id="99")
+    record_source_a_photo(conn, canonical, filepath="canon.jpg", sha256="same-hash", imported_at="t")
+    duplicate_id = record_source_b_photo(
+        conn, duplicate, filepath="dup.jpg", sha256="same-hash", imported_at="t"
+    )
+    album_id = record_album(conn, name="共有アルバム", source="source_a")
+    link_album_photo(conn, album_id=album_id, photo_id="CANON")
+    link_album_photo(conn, album_id=album_id, photo_id=duplicate_id)
+
+    finalize_duplicate(
+        conn,
+        canonical_photo_id="CANON",
+        duplicate_photo_id=duplicate_id,
+        duplicate_relpath="_duplicates/dup.jpg",
+        original_source_relpath="dup.jpg",
+        sha256="same-hash",
+        detected_at="2026-07-21T00:00:00",
+    )
+
+    count = conn.execute(
+        "SELECT count(*) FROM album_photos WHERE album_id = ? AND photo_id = 'CANON'", (album_id,)
+    ).fetchone()[0]
+    assert count == 1

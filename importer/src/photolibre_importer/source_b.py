@@ -34,6 +34,7 @@ class SourceBPhoto:
     roll_id: str | None
     date_taken: datetime | None
     keywords: list[str] = field(default_factory=list)
+    used_original_fallback: bool = False
 
 
 def mac_timestamp_to_datetime(value: float | None) -> datetime | None:
@@ -42,10 +43,29 @@ def mac_timestamp_to_datetime(value: float | None) -> datetime | None:
     return _MAC_EPOCH + timedelta(seconds=value)
 
 
+_ORIGINALS_MARKER = "Originals/"
+
+
 def relative_originals_path(image_path: str) -> Path:
-    marker = "Originals/"
-    index = image_path.index(marker) + len(marker)
+    index = image_path.index(_ORIGINALS_MARKER) + len(_ORIGINALS_MARKER)
     return Path(image_path[index:])
+
+
+def _resolve_relative_path(entry: dict) -> tuple[Path, bool]:
+    """ImagePathを優先し、Modified/配下等でOriginals/を含まない場合は
+    OriginalPath（iPhotoが保持する編集前オリジナルへのパス）にフォールバックする。
+    戻り値の bool は フォールバックを使用したか（= 編集後バージョンを取り込めていないか）。"""
+    image_path = entry["ImagePath"]
+    if _ORIGINALS_MARKER in image_path:
+        return relative_originals_path(image_path), False
+
+    original_path = entry.get("OriginalPath", "")
+    if _ORIGINALS_MARKER in original_path:
+        return relative_originals_path(original_path), True
+
+    raise ValueError(
+        f"ImagePath/OriginalPathのいずれにも'{_ORIGINALS_MARKER}'が見つかりません: {entry}"
+    )
 
 
 def load_album_data(xml_path: Path) -> dict:
@@ -84,10 +104,11 @@ def parse_photos(plist: dict) -> list[SourceBPhoto]:
     photos = []
     for photo_id, entry in plist.get("Master Image List", {}).items():
         roll = entry.get("Roll")
+        relative_path, used_fallback = _resolve_relative_path(entry)
         photos.append(
             SourceBPhoto(
                 photo_id=str(photo_id),
-                relative_path=relative_originals_path(entry["ImagePath"]),
+                relative_path=relative_path,
                 media_type=entry.get("MediaType"),
                 caption=entry.get("Caption"),
                 comment=entry.get("Comment"),
@@ -95,6 +116,7 @@ def parse_photos(plist: dict) -> list[SourceBPhoto]:
                 roll_id=str(roll) if roll is not None else None,
                 date_taken=mac_timestamp_to_datetime(entry.get("DateAsTimerInterval")),
                 keywords=list(entry.get("Keywords", [])),
+                used_original_fallback=used_fallback,
             )
         )
     return photos
