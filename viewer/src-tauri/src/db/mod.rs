@@ -1,0 +1,80 @@
+mod models;
+mod queries;
+
+pub use models::{Album, Photo, PhotoFilter};
+pub use queries::{list_album_photos, list_albums, list_photos, search_photos};
+
+use rusqlite::Connection;
+use std::path::Path;
+
+#[derive(Debug, thiserror::Error)]
+pub enum DbError {
+    #[error("archive.dbを開けません: {0}")]
+    Open(#[from] rusqlite::Error),
+}
+
+/// archive_root配下のarchive.dbを読み取り専用で開く。
+/// ビュワーはインポーターが作成したDBを参照するだけで、書き込みは行わない。
+pub fn open_archive(archive_root: &Path) -> Result<Connection, DbError> {
+    let db_path = archive_root.join("archive.db");
+    let conn = Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    Ok(conn)
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use rusqlite::Connection;
+
+    /// テスト用にarchive.dbの主要テーブルのみを持つ最小スキーマを作成する。
+    /// 本番のスキーマはPython側(importer/schema.py)が作成するため、
+    /// ここではRust側の読み取りロジックを検証するための最小構成を用意する。
+    pub fn create_test_schema(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE photos (
+                id          TEXT PRIMARY KEY,
+                filename    TEXT NOT NULL,
+                filepath    TEXT NOT NULL,
+                media_type  TEXT NOT NULL,
+                date_taken  TEXT,
+                date_added  TEXT,
+                latitude    REAL,
+                longitude   REAL,
+                favorite    INTEGER DEFAULT 0,
+                hidden      INTEGER DEFAULT 0,
+                title       TEXT,
+                description TEXT,
+                width       INTEGER,
+                height      INTEGER,
+                source      TEXT NOT NULL
+            );
+
+            CREATE TABLE albums (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                album_type  TEXT DEFAULT 'manual',
+                source      TEXT NOT NULL
+            );
+
+            CREATE TABLE album_photos (
+                album_id    TEXT NOT NULL,
+                photo_id    TEXT NOT NULL,
+                sort_order  INTEGER DEFAULT 0,
+                PRIMARY KEY (album_id, photo_id)
+            );
+
+            CREATE TABLE keywords (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                name    TEXT UNIQUE NOT NULL
+            );
+
+            CREATE TABLE photo_keywords (
+                photo_id    TEXT NOT NULL,
+                keyword_id  INTEGER NOT NULL,
+                PRIMARY KEY (photo_id, keyword_id)
+            );
+            "#,
+        )
+        .expect("failed to create test schema");
+    }
+}

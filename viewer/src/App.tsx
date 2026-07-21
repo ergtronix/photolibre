@@ -1,51 +1,117 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
+
+import { AlbumList } from "./components/AlbumList";
+import { ArchivePicker } from "./components/ArchivePicker";
+import { FilterBar } from "./components/FilterBar";
+import { Lightbox } from "./components/Lightbox";
+import { PhotoGrid } from "./components/PhotoGrid";
+import { SearchBox } from "./components/SearchBox";
+import { getArchivePath, listAlbumPhotos, listAlbums, listPhotos, searchPhotos } from "./lib/api";
+import { EMPTY_FILTER } from "./lib/types";
+import type { Album, Photo, PhotoFilter } from "./lib/types";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export default function App() {
+  const [archivePath, setArchivePathState] = useState<string | null>(null);
+  const [checkingArchive, setCheckingArchive] = useState(true);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<PhotoFilter>(EMPTY_FILTER);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  useEffect(() => {
+    getArchivePath()
+      .then((path) => setArchivePathState(path))
+      .finally(() => setCheckingArchive(false));
+  }, []);
+
+  useEffect(() => {
+    if (!archivePath) {
+      return;
+    }
+    let cancelled = false;
+    listAlbums().then((result) => {
+      if (!cancelled) {
+        setAlbums(result);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [archivePath]);
+
+  useEffect(() => {
+    if (!archivePath) {
+      return;
+    }
+    let cancelled = false;
+    const applyResult = (result: Photo[]) => {
+      if (!cancelled) {
+        setPhotos(result);
+      }
+    };
+
+    if (searchQuery !== null) {
+      searchPhotos(searchQuery).then(applyResult);
+    } else if (selectedAlbumId !== null) {
+      listAlbumPhotos(selectedAlbumId).then(applyResult);
+    } else {
+      listPhotos(filter).then(applyResult);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [archivePath, selectedAlbumId, filter, searchQuery]);
+
+  if (checkingArchive) {
+    return <div className="app-loading">読み込み中...</div>;
+  }
+
+  if (!archivePath) {
+    return <ArchivePicker onSelected={setArchivePathState} />;
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+    <div className="app">
+      <aside className="app__sidebar">
+        <AlbumList
+          albums={albums}
+          selectedAlbumId={selectedAlbumId}
+          onSelect={(albumId) => {
+            setSelectedAlbumId(albumId);
+            setSearchQuery(null);
+          }}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      </aside>
+
+      <main className="app__main">
+        <div className="app__toolbar">
+          <SearchBox
+            onSearch={(query) => {
+              setSearchQuery(query);
+              setSelectedAlbumId(null);
+            }}
+            onClear={() => setSearchQuery(null)}
+          />
+          {searchQuery === null && selectedAlbumId === null && (
+            <FilterBar filter={filter} onChange={setFilter} />
+          )}
+        </div>
+
+        <PhotoGrid photos={photos} onSelect={setLightboxIndex} />
+      </main>
+
+      {lightboxIndex !== null && (
+        <Lightbox
+          photos={photos}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+        />
+      )}
+    </div>
   );
 }
-
-export default App;
