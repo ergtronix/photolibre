@@ -12,6 +12,7 @@ const {
   listAlbumPhotosMock,
   searchPhotosMock,
   readPhotoDataUrlMock,
+  getThumbnailDataUrlMock,
 } = vi.hoisted(() => ({
   getArchivePathMock: vi.fn(),
   listAlbumsMock: vi.fn(),
@@ -19,6 +20,7 @@ const {
   listAlbumPhotosMock: vi.fn(),
   searchPhotosMock: vi.fn(),
   readPhotoDataUrlMock: vi.fn(),
+  getThumbnailDataUrlMock: vi.fn(),
 }));
 
 vi.mock("./lib/api", () => ({
@@ -28,6 +30,7 @@ vi.mock("./lib/api", () => ({
   listAlbumPhotos: listAlbumPhotosMock,
   searchPhotos: searchPhotosMock,
   readPhotoDataUrl: readPhotoDataUrlMock,
+  getThumbnailDataUrl: getThumbnailDataUrlMock,
   setArchivePath: vi.fn(),
 }));
 
@@ -70,6 +73,7 @@ function makeAlbum(overrides: Partial<Album> = {}): Album {
 beforeEach(() => {
   vi.resetAllMocks();
   readPhotoDataUrlMock.mockResolvedValue("data:image/jpeg;base64,AAAA");
+  getThumbnailDataUrlMock.mockResolvedValue("data:image/jpeg;base64,AAAA");
 });
 
 describe("App", () => {
@@ -91,8 +95,10 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("旅行")).toBeInTheDocument());
-    const photoGrid = screen.getByRole("list", { name: "写真一覧" });
-    expect(within(photoGrid).getAllByRole("listitem")).toHaveLength(1);
+    const photoGrid = screen.getByRole("grid", { name: "写真一覧" });
+    expect(within(photoGrid).getAllByRole("gridcell").filter((cell) => cell.querySelector("button"))).toHaveLength(
+      1
+    );
   });
 
   it("switches to album photos when an album is selected", async () => {

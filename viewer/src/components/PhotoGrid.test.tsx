@@ -6,7 +6,7 @@ import { PhotoGrid } from "./PhotoGrid";
 import type { Photo } from "../lib/types";
 
 vi.mock("../lib/api", () => ({
-  readPhotoDataUrl: vi.fn().mockResolvedValue("data:image/jpeg;base64,AAAA"),
+  getThumbnailDataUrl: vi.fn().mockResolvedValue("data:image/jpeg;base64,AAAA"),
 }));
 
 function makePhoto(overrides: Partial<Photo> = {}): Photo {
@@ -42,7 +42,7 @@ describe("PhotoGrid", () => {
 
     render(<PhotoGrid photos={photos} onSelect={vi.fn()} />);
 
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getAllByRole("gridcell").filter((cell) => cell.querySelector("button"))).toHaveLength(2);
   });
 
   it("calls onSelect with the clicked photo's index", async () => {

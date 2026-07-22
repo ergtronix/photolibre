@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { readPhotoDataUrl } from "../lib/api";
+import { getThumbnailDataUrl } from "../lib/api";
 import type { Photo } from "../lib/types";
 import { useInViewport } from "../lib/useInViewport";
 
@@ -23,7 +23,7 @@ export function PhotoThumbnail({ photo, onClick }: PhotoThumbnailProps) {
     setDataUrl(null);
     setFailed(false);
 
-    readPhotoDataUrl(photo.filepath)
+    getThumbnailDataUrl(photo.id, photo.filepath)
       .then((url) => {
         if (!cancelled) {
           setDataUrl(url);
@@ -38,7 +38,7 @@ export function PhotoThumbnail({ photo, onClick }: PhotoThumbnailProps) {
     return () => {
       cancelled = true;
     };
-  }, [isVisible, photo.filepath]);
+  }, [isVisible, photo.id, photo.filepath]);
 
   return (
     <button

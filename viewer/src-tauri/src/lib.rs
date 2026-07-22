@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod mime;
+mod thumbnail;
 
 use commands::ArchiveState;
 use std::sync::Mutex;
@@ -19,6 +20,7 @@ pub fn run() {
             commands::list_album_photos_command,
             commands::search_photos_command,
             commands::read_photo_data_url,
+            commands::get_thumbnail_data_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

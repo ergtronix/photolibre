@@ -6,6 +6,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::db::{self, Album, Photo, PhotoFilter};
 use crate::mime::mime_type_for_extension;
+use crate::thumbnail::{generate_thumbnail, thumbnail_cache_path};
 
 pub struct ArchiveState(pub Mutex<Option<PathBuf>>);
 
@@ -137,6 +138,34 @@ pub fn read_photo_data_url(
     let bytes = std::fs::read(&resolved).map_err(|e| e.to_string())?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{mime};base64,{encoded}"))
+}
+
+/// 一覧・グリッド表示用の縮小サムネイルを返す。初回はarchive_root/.thumbnails/に
+/// 生成・キャッシュし、以降はキャッシュを読むだけにする。デコード・リサイズは
+/// CPU負荷が高いため、専用のブロッキングスレッドで実行しUIをブロックしない。
+#[tauri::command]
+pub async fn get_thumbnail_data_url(
+    state: State<'_, ArchiveState>,
+    photo_id: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let archive_root = require_archive_path(&state)?;
+    let cache_path = thumbnail_cache_path(&archive_root, &photo_id);
+
+    if !cache_path.exists() {
+        let resolved_source = resolve_safe_path(&archive_root, &relative_path)?;
+        let cache_path_for_task = cache_path.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            generate_thumbnail(&resolved_source, &cache_path_for_task)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    }
+
+    let bytes = std::fs::read(&cache_path).map_err(|e| e.to_string())?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:image/jpeg;base64,{encoded}"))
 }
 
 #[cfg(test)]

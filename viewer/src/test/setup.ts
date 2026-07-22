@@ -30,3 +30,13 @@ class DefaultIntersectionObserver implements IntersectionObserver {
 }
 
 globalThis.IntersectionObserver = DefaultIntersectionObserver as unknown as typeof IntersectionObserver;
+
+// jsdomはResizeObserverも実装していない（react-windowのGrid/Listが内部で使用する）。
+// テスト環境では何もしないフェイクで十分（実サイズ計測はブラウザ環境のみ必要）。
+class NoopResizeObserver implements ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;

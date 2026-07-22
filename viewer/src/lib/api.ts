@@ -34,3 +34,7 @@ export async function searchPhotos(query: string): Promise<Photo[]> {
 export async function readPhotoDataUrl(relativePath: string): Promise<string> {
   return invoke<string>("read_photo_data_url", { relativePath });
 }
+
+export async function getThumbnailDataUrl(photoId: string, relativePath: string): Promise<string> {
+  return invoke<string>("get_thumbnail_data_url", { photoId, relativePath });
+}
