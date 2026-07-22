@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { readPhotoDataUrl } from "../lib/api";
 import type { Photo } from "../lib/types";
+import { useInViewport } from "../lib/useInViewport";
 
 interface PhotoThumbnailProps {
   photo: Photo;
@@ -9,10 +10,15 @@ interface PhotoThumbnailProps {
 }
 
 export function PhotoThumbnail({ photo, onClick }: PhotoThumbnailProps) {
+  const [ref, isVisible] = useInViewport<HTMLButtonElement>();
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
     let cancelled = false;
     setDataUrl(null);
     setFailed(false);
@@ -32,10 +38,11 @@ export function PhotoThumbnail({ photo, onClick }: PhotoThumbnailProps) {
     return () => {
       cancelled = true;
     };
-  }, [photo.filepath]);
+  }, [isVisible, photo.filepath]);
 
   return (
     <button
+      ref={ref}
       type="button"
       className="photo-thumbnail"
       onClick={onClick}
