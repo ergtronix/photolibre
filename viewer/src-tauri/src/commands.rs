@@ -6,7 +6,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::db::{self, Album, Photo, PhotoFilter};
 use crate::mime::mime_type_for_extension;
-use crate::rotation;
+use crate::rotation::{self, rotated_full_cache_path};
 use crate::thumbnail::{generate_thumbnail, rotate_by_degrees, thumbnail_cache_path};
 
 pub struct ArchiveState(pub Mutex<Option<PathBuf>>);
@@ -144,24 +144,35 @@ pub async fn read_photo_data_url(
         return Ok(format!("data:{mime};base64,{encoded}"));
     }
 
-    // 手動回転が指定されている場合のみデコード・回転・JPEG再エンコードする
-    let encoded = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        let img = image::ImageReader::open(&resolved)
-            .map_err(|e| e.to_string())?
-            .with_guessed_format()
-            .map_err(|e| e.to_string())?
-            .decode()
-            .map_err(|e| e.to_string())?;
-        let rotated = rotate_by_degrees(img, rotation_degrees);
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        rotated
-            .write_to(&mut buffer, image::ImageFormat::Jpeg)
-            .map_err(|e| e.to_string())?;
-        Ok(base64::engine::general_purpose::STANDARD.encode(buffer.into_inner()))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    // 回転済みフルサイズ画像のキャッシュがあれば、デコード・再エンコードせず
+    // そのまま返す（表示のたびに毎回回転処理をやり直すと非常に遅いため）。
+    let cache_path = rotated_full_cache_path(&archive_root, &photo_id);
+    if !cache_path.exists() {
+        let cache_path_for_task = cache_path.clone();
+        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+            let img = image::ImageReader::open(&resolved)
+                .map_err(|e| e.to_string())?
+                .with_guessed_format()
+                .map_err(|e| e.to_string())?
+                .decode()
+                .map_err(|e| e.to_string())?;
+            let rotated = rotate_by_degrees(img, rotation_degrees);
+            if let Some(parent) = cache_path_for_task.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut output =
+                std::fs::File::create(&cache_path_for_task).map_err(|e| e.to_string())?;
+            rotated
+                .write_to(&mut output, image::ImageFormat::Jpeg)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+    }
 
+    let bytes = std::fs::read(&cache_path).map_err(|e| e.to_string())?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:image/jpeg;base64,{encoded}"))
 }
 
@@ -201,8 +212,9 @@ pub fn get_photo_rotation(state: State<ArchiveState>, photo_id: String) -> Resul
 }
 
 /// ERGが手動で指定した写真の回転角度を保存する。元ファイルは一切変更せず、
-/// archive_root配下の別ファイルに記録するのみ。既存のキャッシュ済みサムネイルは
-/// 古い向きのまま残ってしまうため削除し、次回アクセス時に新しい向きで再生成させる。
+/// archive_root配下の別ファイルに記録するのみ。既存のキャッシュ済みサムネイル・
+/// 回転済みフルサイズ画像は古い向きのまま残ってしまうため削除し、
+/// 次回アクセス時に新しい向きで再生成させる。
 #[tauri::command]
 pub fn set_photo_rotation(
     state: State<ArchiveState>,
@@ -212,9 +224,14 @@ pub fn set_photo_rotation(
     let archive_root = require_archive_path(&state)?;
     rotation::set_rotation(&archive_root, &photo_id, degrees).map_err(|e| e.to_string())?;
 
-    let cache_path = thumbnail_cache_path(&archive_root, &photo_id);
-    if cache_path.exists() {
-        std::fs::remove_file(&cache_path).map_err(|e| e.to_string())?;
+    let thumb_cache_path = thumbnail_cache_path(&archive_root, &photo_id);
+    if thumb_cache_path.exists() {
+        std::fs::remove_file(&thumb_cache_path).map_err(|e| e.to_string())?;
+    }
+
+    let full_cache_path = rotated_full_cache_path(&archive_root, &photo_id);
+    if full_cache_path.exists() {
+        std::fs::remove_file(&full_cache_path).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

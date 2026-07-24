@@ -40,7 +40,7 @@ function makePhoto(overrides: Partial<Photo> = {}): Photo {
 describe("Lightbox", () => {
   it("renders nothing when currentIndex is out of range", () => {
     const { container } = render(
-      <Lightbox photos={[]} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />
+      <Lightbox photos={[]} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />
     );
 
     expect(container).toBeEmptyDOMElement();
@@ -49,7 +49,7 @@ describe("Lightbox", () => {
   it("shows the current photo's caption and loaded image", async () => {
     const photos = [makePhoto({ id: "1", filename: "sunset.jpg" })];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
 
     expect(screen.getByText("sunset.jpg")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
@@ -60,7 +60,7 @@ describe("Lightbox", () => {
     const onClose = vi.fn();
     const photos = [makePhoto()];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={onClose} onNavigate={vi.fn()} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={onClose} onNavigate={vi.fn()} onRotated={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "閉じる" }));
 
     expect(onClose).toHaveBeenCalled();
@@ -69,7 +69,7 @@ describe("Lightbox", () => {
   it("hides the prev button on the first photo and the next button on the last", () => {
     const photos = [makePhoto({ id: "1" }), makePhoto({ id: "2" })];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: "前の写真" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "次の写真" })).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe("Lightbox", () => {
     const onNavigate = vi.fn();
     const photos = [makePhoto({ id: "1" }), makePhoto({ id: "2" })];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={onNavigate} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={onNavigate} onRotated={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "次の写真" }));
 
     expect(onNavigate).toHaveBeenCalledWith(1);
@@ -91,7 +91,7 @@ describe("Lightbox", () => {
     const onClose = vi.fn();
     const photos = [makePhoto()];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={onClose} onNavigate={vi.fn()} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={onClose} onNavigate={vi.fn()} onRotated={vi.fn()} />);
     await user.keyboard("{Escape}");
 
     expect(onClose).toHaveBeenCalled();
@@ -102,7 +102,7 @@ describe("Lightbox", () => {
     const onNavigate = vi.fn();
     const photos = [makePhoto({ id: "1" }), makePhoto({ id: "2" })];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={onNavigate} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={onNavigate} onRotated={vi.fn()} />);
     await user.keyboard("{ArrowRight}");
 
     expect(onNavigate).toHaveBeenCalledWith(1);
@@ -113,7 +113,7 @@ describe("Lightbox", () => {
     getPhotoRotationMock.mockResolvedValueOnce(90);
     const photos = [makePhoto({ id: "1" })];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
     await waitFor(() => expect(getPhotoRotationMock).toHaveBeenCalledWith("1"));
     await user.click(screen.getByRole("button", { name: "時計回りに回転" }));
 
@@ -125,10 +125,23 @@ describe("Lightbox", () => {
     getPhotoRotationMock.mockResolvedValueOnce(0);
     const photos = [makePhoto({ id: "1" })];
 
-    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
     await waitFor(() => expect(getPhotoRotationMock).toHaveBeenCalledWith("1"));
     await user.click(screen.getByRole("button", { name: "反時計回りに回転" }));
 
     await waitFor(() => expect(setPhotoRotationMock).toHaveBeenCalledWith("1", 270));
+  });
+
+  it("notifies onRotated with the photo id after rotating so the grid can refresh its thumbnail", async () => {
+    const user = userEvent.setup();
+    getPhotoRotationMock.mockResolvedValueOnce(0);
+    const onRotated = vi.fn();
+    const photos = [makePhoto({ id: "1" })];
+
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={onRotated} />);
+    await waitFor(() => expect(getPhotoRotationMock).toHaveBeenCalledWith("1"));
+    await user.click(screen.getByRole("button", { name: "時計回りに回転" }));
+
+    await waitFor(() => expect(onRotated).toHaveBeenCalledWith("1"));
   });
 });

@@ -12,6 +12,16 @@ pub fn normalize_degrees(degrees: i32) -> i32 {
     degrees.rem_euclid(360) / 90 * 90
 }
 
+/// 手動回転を適用済みのフルサイズ画像をキャッシュするパス。
+/// 毎回デコード・回転・再エンコードすると表示のたびに時間がかかるため、
+/// 一度生成した結果を保存し使い回す（回転角度が変わった時のみ再生成する）。
+pub fn rotated_full_cache_path(archive_root: &Path, photo_id: &str) -> PathBuf {
+    archive_root
+        .join(".viewer_state")
+        .join("rotated_full")
+        .join(format!("{photo_id}.jpg"))
+}
+
 fn load_all(archive_root: &Path) -> HashMap<String, i32> {
     let path = rotation_store_path(archive_root);
     let Ok(content) = std::fs::read_to_string(&path) else {
@@ -114,5 +124,17 @@ mod tests {
         set_rotation(tmp.path(), "PHOTO-1", 270).unwrap();
 
         assert_eq!(get_rotation(tmp.path(), "PHOTO-1"), 270);
+    }
+
+    #[test]
+    fn rotated_full_cache_path_is_scoped_under_viewer_state() {
+        let archive_root = Path::new("E:/archive");
+
+        let path = rotated_full_cache_path(archive_root, "UUID-1");
+
+        assert_eq!(
+            path,
+            Path::new("E:/archive/.viewer_state/rotated_full/UUID-1.jpg")
+        );
     }
 }

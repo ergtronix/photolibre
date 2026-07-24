@@ -8,13 +8,14 @@ interface LightboxProps {
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  onRotated: (photoId: string) => void;
 }
 
 function normalizeDegrees(degrees: number): number {
   return ((degrees % 360) + 360) % 360;
 }
 
-export function Lightbox({ photos, currentIndex, onClose, onNavigate }: LightboxProps) {
+export function Lightbox({ photos, currentIndex, onClose, onNavigate, onRotated }: LightboxProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [rotation, setRotation] = useState(0);
   const photo = photos[currentIndex];
@@ -67,6 +68,7 @@ export function Lightbox({ photos, currentIndex, onClose, onNavigate }: Lightbox
     setRotation(next);
     const url = await readPhotoDataUrl(photo.id, photo.filepath);
     setDataUrl(url);
+    onRotated(photo.id);
   };
 
   return (

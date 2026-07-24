@@ -7,6 +7,7 @@ import type { Photo } from "../lib/types";
 interface PhotoGridProps {
   photos: Photo[];
   onSelect: (index: number) => void;
+  photoVersions: Record<string, number>;
 }
 
 const TARGET_CELL_SIZE = 160;
@@ -17,6 +18,7 @@ interface CellProps {
   photos: Photo[];
   columnCount: number;
   onSelect: (index: number) => void;
+  photoVersions: Record<string, number>;
 }
 
 function PhotoGridCell({
@@ -27,6 +29,7 @@ function PhotoGridCell({
   photos,
   columnCount,
   onSelect,
+  photoVersions,
 }: CellComponentProps<CellProps>) {
   const index = rowIndex * columnCount + columnIndex;
   const photo = photos[index];
@@ -35,14 +38,18 @@ function PhotoGridCell({
     return <div style={style} {...ariaAttributes} />;
   }
 
+  // 手動回転を行うとphotoVersionsの値が増え、keyが変わることで
+  // PhotoThumbnailを再マウントし、更新後のサムネイルを取得し直させる。
+  const version = photoVersions[photo.id] ?? 0;
+
   return (
     <div style={style} {...ariaAttributes}>
-      <PhotoThumbnail photo={photo} onClick={() => onSelect(index)} />
+      <PhotoThumbnail key={`${photo.id}:${version}`} photo={photo} onClick={() => onSelect(index)} />
     </div>
   );
 }
 
-export function PhotoGrid({ photos, onSelect }: PhotoGridProps) {
+export function PhotoGrid({ photos, onSelect, photoVersions }: PhotoGridProps) {
   const [size, setSize] = useState({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
 
   if (photos.length === 0) {
@@ -58,7 +65,7 @@ export function PhotoGrid({ photos, onSelect }: PhotoGridProps) {
       className="photo-grid"
       aria-label="写真一覧"
       cellComponent={PhotoGridCell}
-      cellProps={{ photos, columnCount, onSelect }}
+      cellProps={{ photos, columnCount, onSelect, photoVersions }}
       columnCount={columnCount}
       columnWidth={columnWidth}
       rowCount={rowCount}

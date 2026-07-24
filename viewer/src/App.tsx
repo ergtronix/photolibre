@@ -20,6 +20,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [photoVersions, setPhotoVersions] = useState<Record<string, number>>({});
 
   useEffect(() => {
     getArchivePath()
@@ -101,7 +102,7 @@ export default function App() {
           )}
         </div>
 
-        <PhotoGrid photos={photos} onSelect={setLightboxIndex} />
+        <PhotoGrid photos={photos} onSelect={setLightboxIndex} photoVersions={photoVersions} />
       </main>
 
       {lightboxIndex !== null && (
@@ -110,6 +111,12 @@ export default function App() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          onRotated={(photoId) =>
+            setPhotoVersions((versions) => ({
+              ...versions,
+              [photoId]: (versions[photoId] ?? 0) + 1,
+            }))
+          }
         />
       )}
     </div>

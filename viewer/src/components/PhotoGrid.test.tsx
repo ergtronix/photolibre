@@ -32,7 +32,7 @@ function makePhoto(overrides: Partial<Photo> = {}): Photo {
 
 describe("PhotoGrid", () => {
   it("renders an empty message when there are no photos", () => {
-    render(<PhotoGrid photos={[]} onSelect={vi.fn()} />);
+    render(<PhotoGrid photos={[]} onSelect={vi.fn()} photoVersions={{}} />);
 
     expect(screen.getByText("写真が見つかりませんでした。")).toBeInTheDocument();
   });
@@ -40,7 +40,7 @@ describe("PhotoGrid", () => {
   it("renders one thumbnail button per photo", () => {
     const photos = [makePhoto({ id: "1" }), makePhoto({ id: "2", filename: "b.jpg" })];
 
-    render(<PhotoGrid photos={photos} onSelect={vi.fn()} />);
+    render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
 
     expect(screen.getAllByRole("gridcell").filter((cell) => cell.querySelector("button"))).toHaveLength(2);
   });
@@ -50,7 +50,7 @@ describe("PhotoGrid", () => {
     const onSelect = vi.fn();
     const photos = [makePhoto({ id: "1", filename: "a.jpg" }), makePhoto({ id: "2", filename: "b.jpg" })];
 
-    render(<PhotoGrid photos={photos} onSelect={onSelect} />);
+    render(<PhotoGrid photos={photos} onSelect={onSelect} photoVersions={{}} />);
     await user.click(screen.getByRole("button", { name: "b.jpg" }));
 
     expect(onSelect).toHaveBeenCalledWith(1);
@@ -59,7 +59,7 @@ describe("PhotoGrid", () => {
   it("shows a favorite marker for favorited photos", async () => {
     const photos = [makePhoto({ id: "1", favorite: true })];
 
-    render(<PhotoGrid photos={photos} onSelect={vi.fn()} />);
+    render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
 
     await waitFor(() => expect(screen.getByText("★")).toBeInTheDocument());
   });
