@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type WheelEvent } from "react";
 
 import { getPhotoRotation, readPhotoDataUrl, setPhotoRotation } from "../lib/api";
 import type { Photo } from "../lib/types";
+import { zoomFromWheelDelta, zoomStep } from "../lib/zoom";
 
 interface LightboxProps {
   photos: Photo[];
@@ -18,12 +19,14 @@ function normalizeDegrees(degrees: number): number {
 export function Lightbox({ photos, currentIndex, onClose, onNavigate, onRotated }: LightboxProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [rotation, setRotation] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const photo = photos[currentIndex];
 
   useEffect(() => {
     let cancelled = false;
     setDataUrl(null);
     setRotation(0);
+    setZoom(1);
     if (!photo) {
       return;
     }
@@ -71,6 +74,14 @@ export function Lightbox({ photos, currentIndex, onClose, onNavigate, onRotated 
     onRotated(photo.id);
   };
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey) {
+      return;
+    }
+    event.preventDefault();
+    setZoom((current) => zoomFromWheelDelta(current, event.deltaY));
+  };
+
   return (
     <div className="lightbox" role="dialog" aria-modal="true" aria-label={photo.title ?? photo.filename}>
       <button type="button" className="lightbox__close" aria-label="閉じる" onClick={onClose}>
@@ -83,6 +94,12 @@ export function Lightbox({ photos, currentIndex, onClose, onNavigate, onRotated 
         </button>
         <button type="button" aria-label="時計回りに回転" onClick={() => handleRotate(1)}>
           ↻
+        </button>
+        <button type="button" aria-label="縮小" onClick={() => setZoom((z) => zoomStep(z, -1))}>
+          −
+        </button>
+        <button type="button" aria-label="拡大" onClick={() => setZoom((z) => zoomStep(z, 1))}>
+          ＋
         </button>
       </div>
 
@@ -97,9 +114,13 @@ export function Lightbox({ photos, currentIndex, onClose, onNavigate, onRotated 
         </button>
       )}
 
-      <div className="lightbox__content">
+      <div className="lightbox__content" onWheel={handleWheel}>
         {dataUrl ? (
-          <img src={dataUrl} alt={photo.title ?? photo.filename} />
+          <img
+            src={dataUrl}
+            alt={photo.title ?? photo.filename}
+            style={{ transform: `scale(${zoom})` }}
+          />
         ) : (
           <div className="lightbox__loading">読み込み中...</div>
         )}

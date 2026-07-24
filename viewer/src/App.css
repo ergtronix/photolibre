@@ -222,12 +222,15 @@ button:hover {
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+  overflow: auto;
 }
 
 .lightbox__content img {
   max-width: 90vw;
   max-height: 80vh;
   object-fit: contain;
+  transform-origin: center;
+  transition: transform 0.1s ease-out;
 }
 
 .lightbox__caption {
