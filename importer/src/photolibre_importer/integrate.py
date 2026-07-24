@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import uuid as uuid_module
 
@@ -5,6 +6,7 @@ from photolibre_importer.source_a import SourceAPhoto
 from photolibre_importer.source_b import SourceBPhoto
 
 _SOURCE_B_ID_PREFIX = "source_b-"
+_SUFFIX_PATTERN = re.compile(r"\s*\(\d+\)\s*$")
 
 
 def record_source_a_photo(
@@ -148,6 +150,71 @@ def finalize_duplicate(
         (canonical_photo_id, duplicate_relpath, original_source_relpath, sha256, detected_at),
     )
     conn.commit()
+
+
+def _strip_numbering_suffix(name: str) -> str:
+    return _SUFFIX_PATTERN.sub("", name).strip()
+
+
+def find_subset_duplicate_albums(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """名前が「ベース名」と「ベース名 (N)」の関係にあるアルバム同士のうち、
+    写真の中身（sha256の集合）が完全一致または部分集合の関係にあるものを検出する。
+    写真の内容が実際に重なっている場合のみを対象とし、名前が似ているだけで
+    中身が異なるものは対象外とする（要確認扱いのまま残す）。
+
+    戻り値は (canonical_album_id, duplicate_album_id) のリスト。canonicalは
+    より多くの写真を持つ側。写真数が同じ場合は"(N)"が付かない名前を優先する。
+    """
+    albums = conn.execute("SELECT id, name FROM albums").fetchall()
+
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for album_id, name in albums:
+        base = _strip_numbering_suffix(name)
+        groups.setdefault(base, []).append((album_id, name))
+
+    photo_hashes_by_album: dict[str, set[str]] = {}
+
+    def hashes_for(album_id: str) -> set[str]:
+        if album_id not in photo_hashes_by_album:
+            rows = conn.execute(
+                """
+                SELECT p.sha256 FROM photos p
+                JOIN album_photos ap ON ap.photo_id = p.id
+                WHERE ap.album_id = ?
+                """,
+                (album_id,),
+            ).fetchall()
+            photo_hashes_by_album[album_id] = {row[0] for row in rows}
+        return photo_hashes_by_album[album_id]
+
+    pairs: list[tuple[str, str]] = []
+    for base, entries in groups.items():
+        if len(entries) < 2:
+            continue
+
+        for i in range(len(entries)):
+            for j in range(i + 1, len(entries)):
+                id_a, name_a = entries[i]
+                id_b, name_b = entries[j]
+                hashes_a, hashes_b = hashes_for(id_a), hashes_for(id_b)
+
+                if not hashes_a.issubset(hashes_b) and not hashes_b.issubset(hashes_a):
+                    continue  # 中身が食い違う。要確認のまま残す
+
+                if len(hashes_a) > len(hashes_b):
+                    canonical, duplicate = id_a, id_b
+                elif len(hashes_b) > len(hashes_a):
+                    canonical, duplicate = id_b, id_a
+                else:
+                    # 写真数が同じ場合は"(N)"の付かない名前を正本として優先する
+                    if name_a == base:
+                        canonical, duplicate = id_a, id_b
+                    else:
+                        canonical, duplicate = id_b, id_a
+
+                pairs.append((canonical, duplicate))
+
+    return pairs
 
 
 def merge_albums(conn: sqlite3.Connection, canonical_album_id: str, duplicate_album_id: str) -> None:

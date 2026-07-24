@@ -21,6 +21,7 @@ from photolibre_importer.guard import assert_tree_unchanged, snapshot_tree
 from photolibre_importer.hashing import hash_file
 from photolibre_importer.integrate import (
     finalize_duplicate,
+    find_subset_duplicate_albums,
     link_album_photo,
     merge_albums,
     record_album,
@@ -241,6 +242,11 @@ def main():
         f"アルバム突合: 完全一致統合候補{len(reconciliation.merged)}件、"
         f"要確認{len(reconciliation.review)}件をalbum_reviewへ記録"
     )
+
+    subset_pairs = find_subset_duplicate_albums(conn)
+    for canonical_id, duplicate_id in subset_pairs:
+        merge_albums(conn, canonical_album_id=canonical_id, duplicate_album_id=duplicate_id)
+    print(f"アルバム内容重複統合: {len(subset_pairs)}件（写真の中身が正本の部分集合だったもの）")
 
     conn.close()
 

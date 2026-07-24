@@ -6,6 +6,7 @@ import pytest
 
 from photolibre_importer.integrate import (
     finalize_duplicate,
+    find_subset_duplicate_albums,
     link_album_photo,
     merge_albums,
     record_album,
@@ -238,3 +239,67 @@ def test_merge_albums_does_not_duplicate_link_already_on_canonical(conn):
         (canonical_id,),
     ).fetchone()[0]
     assert count == 1
+
+
+def _insert_photo_with_hash(conn, photo_id, sha256):
+    photo = _source_a_photo(uuid=photo_id)
+    record_source_a_photo(
+        conn, photo, filepath=f"{photo_id}.jpg", sha256=sha256, imported_at="t"
+    )
+
+
+def test_find_subset_duplicate_albums_detects_single_photo_subset_of_larger_album(conn):
+    _insert_photo_with_hash(conn, "P1", "hash-1")
+    _insert_photo_with_hash(conn, "P2", "hash-2")
+
+    main_id = record_album(conn, name="20040111高尾山", source="source_a")
+    link_album_photo(conn, album_id=main_id, photo_id="P1")
+    link_album_photo(conn, album_id=main_id, photo_id="P2")
+
+    suffixed_id = record_album(conn, name="20040111高尾山 (1)", source="source_a")
+    link_album_photo(conn, album_id=suffixed_id, photo_id="P1")
+
+    pairs = find_subset_duplicate_albums(conn)
+
+    assert pairs == [(main_id, suffixed_id)]
+
+
+def test_find_subset_duplicate_albums_ignores_pairs_with_genuinely_different_photos(conn):
+    _insert_photo_with_hash(conn, "P1", "hash-1")
+    _insert_photo_with_hash(conn, "P2", "hash-2")
+
+    album_a = record_album(conn, name="卒業式", source="source_a")
+    link_album_photo(conn, album_id=album_a, photo_id="P1")
+
+    album_b = record_album(conn, name="卒業式 (1)", source="source_a")
+    link_album_photo(conn, album_id=album_b, photo_id="P2")
+
+    pairs = find_subset_duplicate_albums(conn)
+
+    assert pairs == []
+
+
+def test_find_subset_duplicate_albums_ignores_unrelated_names(conn):
+    _insert_photo_with_hash(conn, "P1", "hash-1")
+
+    album_a = record_album(conn, name="卒業式", source="source_a")
+    link_album_photo(conn, album_id=album_a, photo_id="P1")
+    album_b = record_album(conn, name="運動会", source="source_a")
+    link_album_photo(conn, album_id=album_b, photo_id="P1")
+
+    pairs = find_subset_duplicate_albums(conn)
+
+    assert pairs == []
+
+
+def test_find_subset_duplicate_albums_prefers_the_unsuffixed_name_as_canonical(conn):
+    _insert_photo_with_hash(conn, "P1", "hash-1")
+
+    suffixed_id = record_album(conn, name="遠足 (1)", source="source_a")
+    link_album_photo(conn, album_id=suffixed_id, photo_id="P1")
+    main_id = record_album(conn, name="遠足", source="source_a")
+    link_album_photo(conn, album_id=main_id, photo_id="P1")
+
+    pairs = find_subset_duplicate_albums(conn)
+
+    assert pairs == [(main_id, suffixed_id)]
