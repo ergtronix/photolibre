@@ -107,14 +107,20 @@ pub fn list_album_photos(conn: &Connection, album_id: &str) -> Result<Vec<Photo>
         .map_err(DbError::from)
 }
 
+/// ファイル名・タイトル・説明に加えて、写真が属するアルバム名（左ペインの
+/// イベント名）でも検索できるようにする。デジカメ取り込みの写真はファイル名に
+/// 意味のある文字列を含まないことが多く、アルバム名検索がないと実質検索できない。
 pub fn search_photos(conn: &Connection, query: &str) -> Result<Vec<Photo>, DbError> {
     let pattern = format!("%{query}%");
     let mut stmt = conn.prepare(
-        "SELECT id, filename, filepath, media_type, date_taken, date_added, \
-         latitude, longitude, favorite, hidden, title, description, width, height, source \
-         FROM photos \
-         WHERE filename LIKE ?1 OR title LIKE ?1 OR description LIKE ?1 \
-         ORDER BY date_taken ASC",
+        "SELECT DISTINCT p.id, p.filename, p.filepath, p.media_type, p.date_taken, p.date_added, \
+         p.latitude, p.longitude, p.favorite, p.hidden, p.title, p.description, \
+         p.width, p.height, p.source \
+         FROM photos p \
+         LEFT JOIN album_photos ap ON ap.photo_id = p.id \
+         LEFT JOIN albums a ON a.id = ap.album_id \
+         WHERE p.filename LIKE ?1 OR p.title LIKE ?1 OR p.description LIKE ?1 OR a.name LIKE ?1 \
+         ORDER BY p.date_taken ASC",
     )?;
     let rows = stmt.query_map([&pattern], row_to_photo)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -389,5 +395,69 @@ mod tests {
         let photos = search_photos(&conn, "nonexistent").unwrap();
 
         assert!(photos.is_empty());
+    }
+
+    #[test]
+    fn search_photos_matches_album_name_for_photos_with_no_meaningful_filename() {
+        let conn = setup();
+        // デジカメ取り込みは"IMG_0001.jpg"のようなファイル名で、検索語を含まないことが多い
+        insert_photo(
+            &conn,
+            "1",
+            "IMG_0001.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "IMG_0002.jpg",
+            "2020-01-02T00:00:00",
+            false,
+            "source_a",
+        );
+        conn.execute(
+            "INSERT INTO albums (id, name, source) VALUES ('alb1', '七五三', 'source_a')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO album_photos (album_id, photo_id) VALUES ('alb1', '1')",
+            [],
+        )
+        .unwrap();
+
+        let photos = search_photos(&conn, "七五三").unwrap();
+
+        assert_eq!(photos.len(), 1);
+        assert_eq!(photos[0].id, "1");
+    }
+
+    #[test]
+    fn search_photos_does_not_duplicate_a_photo_belonging_to_multiple_matching_albums() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "IMG_0001.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        conn.execute(
+            "INSERT INTO albums (id, name, source) VALUES ('alb1', '運動会2020', 'source_a'), ('alb2', '運動会2020写真', 'source_b')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO album_photos (album_id, photo_id) VALUES ('alb1', '1'), ('alb2', '1')",
+            [],
+        )
+        .unwrap();
+
+        let photos = search_photos(&conn, "運動会").unwrap();
+
+        assert_eq!(photos.len(), 1);
     }
 }
