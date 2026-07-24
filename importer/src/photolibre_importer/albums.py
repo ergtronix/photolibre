@@ -1,3 +1,4 @@
+import unicodedata
 from dataclasses import dataclass, field
 
 
@@ -10,7 +11,9 @@ class AlbumReconciliation:
 
 
 def _normalize(name: str) -> str:
-    return name.strip().casefold()
+    # Source A(Photos.app)とSource B(iPhoto)でUnicode正規化形式(NFC/NFD)が
+    # 異なる同一名称が存在するため、比較前にNFCへ揃える。
+    return unicodedata.normalize("NFC", name).strip().casefold()
 
 
 def reconcile_albums(

@@ -1,3 +1,5 @@
+import unicodedata
+
 from photolibre_importer.albums import reconcile_albums
 
 
@@ -40,6 +42,22 @@ def test_reconcile_albums_leaves_unrelated_names_untouched():
 def test_reconcile_albums_handles_empty_inputs():
     result = reconcile_albums(source_a_names=[], source_b_names=[])
     assert result.merged == []
+    assert result.review == []
+    assert result.unmatched_a == []
+    assert result.unmatched_b == []
+
+
+def test_reconcile_albums_merges_names_differing_only_in_unicode_normalization_form():
+    # Source A(Photos.app/osxphotos)はNFC、Source B(iPhoto AlbumData.xml)はNFDで
+    # 同じ文字列を保持していることがあり、見た目は同じでも生の文字列比較では
+    # 一致しない（実データで確認済み: "20080419ディズニーシー"）。
+    nfc_name = unicodedata.normalize("NFC", "20080419ディズニーシー")
+    nfd_name = unicodedata.normalize("NFD", "20080419ディズニーシー")
+    assert nfc_name != nfd_name  # 前提: 生のPython文字列としては異なる
+
+    result = reconcile_albums(source_a_names=[nfc_name], source_b_names=[nfd_name])
+
+    assert result.merged == [(nfc_name, nfd_name)]
     assert result.review == []
     assert result.unmatched_a == []
     assert result.unmatched_b == []
