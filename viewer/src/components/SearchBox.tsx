@@ -31,7 +31,7 @@ export function SearchBox({ onSearch, onClear }: SearchBoxProps) {
           type="search"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="ファイル名・タイトル・説明で検索"
+          placeholder="ファイル名・タイトル・説明・アルバム名で検索"
         />
       </label>
       <button type="submit">検索</button>
