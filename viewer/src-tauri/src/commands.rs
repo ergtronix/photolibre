@@ -6,7 +6,8 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::db::{self, Album, Photo, PhotoFilter};
 use crate::mime::mime_type_for_extension;
-use crate::thumbnail::{generate_thumbnail, thumbnail_cache_path};
+use crate::rotation;
+use crate::thumbnail::{generate_thumbnail, rotate_by_degrees, thumbnail_cache_path};
 
 pub struct ArchiveState(pub Mutex<Option<PathBuf>>);
 
@@ -125,19 +126,43 @@ fn resolve_safe_path(archive_root: &Path, relative_path: &str) -> Result<PathBuf
 }
 
 #[tauri::command]
-pub fn read_photo_data_url(
-    state: State<ArchiveState>,
+pub async fn read_photo_data_url(
+    state: State<'_, ArchiveState>,
     relative_path: String,
+    photo_id: String,
 ) -> Result<String, String> {
     let archive_root = require_archive_path(&state)?;
     let resolved = resolve_safe_path(&archive_root, &relative_path)?;
+    let rotation_degrees = rotation::get_rotation(&archive_root, &photo_id);
 
-    let extension = resolved.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let mime = mime_type_for_extension(extension);
+    if rotation_degrees == 0 {
+        // 回転指定が無ければ元ファイルをそのまま返す（デコード・再エンコードのコストを避ける）
+        let extension = resolved.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let mime = mime_type_for_extension(extension);
+        let bytes = std::fs::read(&resolved).map_err(|e| e.to_string())?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        return Ok(format!("data:{mime};base64,{encoded}"));
+    }
 
-    let bytes = std::fs::read(&resolved).map_err(|e| e.to_string())?;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-    Ok(format!("data:{mime};base64,{encoded}"))
+    // 手動回転が指定されている場合のみデコード・回転・JPEG再エンコードする
+    let encoded = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let img = image::ImageReader::open(&resolved)
+            .map_err(|e| e.to_string())?
+            .with_guessed_format()
+            .map_err(|e| e.to_string())?
+            .decode()
+            .map_err(|e| e.to_string())?;
+        let rotated = rotate_by_degrees(img, rotation_degrees);
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        rotated
+            .write_to(&mut buffer, image::ImageFormat::Jpeg)
+            .map_err(|e| e.to_string())?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(buffer.into_inner()))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(format!("data:image/jpeg;base64,{encoded}"))
 }
 
 /// 一覧・グリッド表示用の縮小サムネイルを返す。初回はarchive_root/.thumbnails/に
@@ -154,9 +179,10 @@ pub async fn get_thumbnail_data_url(
 
     if !cache_path.exists() {
         let resolved_source = resolve_safe_path(&archive_root, &relative_path)?;
+        let rotation_degrees = rotation::get_rotation(&archive_root, &photo_id);
         let cache_path_for_task = cache_path.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            generate_thumbnail(&resolved_source, &cache_path_for_task)
+            generate_thumbnail(&resolved_source, &cache_path_for_task, rotation_degrees)
         })
         .await
         .map_err(|e| e.to_string())?
@@ -166,6 +192,31 @@ pub async fn get_thumbnail_data_url(
     let bytes = std::fs::read(&cache_path).map_err(|e| e.to_string())?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:image/jpeg;base64,{encoded}"))
+}
+
+#[tauri::command]
+pub fn get_photo_rotation(state: State<ArchiveState>, photo_id: String) -> Result<i32, String> {
+    let archive_root = require_archive_path(&state)?;
+    Ok(rotation::get_rotation(&archive_root, &photo_id))
+}
+
+/// ERGが手動で指定した写真の回転角度を保存する。元ファイルは一切変更せず、
+/// archive_root配下の別ファイルに記録するのみ。既存のキャッシュ済みサムネイルは
+/// 古い向きのまま残ってしまうため削除し、次回アクセス時に新しい向きで再生成させる。
+#[tauri::command]
+pub fn set_photo_rotation(
+    state: State<ArchiveState>,
+    photo_id: String,
+    degrees: i32,
+) -> Result<(), String> {
+    let archive_root = require_archive_path(&state)?;
+    rotation::set_rotation(&archive_root, &photo_id, degrees).map_err(|e| e.to_string())?;
+
+    let cache_path = thumbnail_cache_path(&archive_root, &photo_id);
+    if cache_path.exists() {
+        std::fs::remove_file(&cache_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

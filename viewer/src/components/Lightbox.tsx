@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { readPhotoDataUrl } from "../lib/api";
+import { getPhotoRotation, readPhotoDataUrl, setPhotoRotation } from "../lib/api";
 import type { Photo } from "../lib/types";
 
 interface LightboxProps {
@@ -10,21 +10,34 @@ interface LightboxProps {
   onNavigate: (index: number) => void;
 }
 
+function normalizeDegrees(degrees: number): number {
+  return ((degrees % 360) + 360) % 360;
+}
+
 export function Lightbox({ photos, currentIndex, onClose, onNavigate }: LightboxProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [rotation, setRotation] = useState(0);
   const photo = photos[currentIndex];
 
   useEffect(() => {
     let cancelled = false;
     setDataUrl(null);
+    setRotation(0);
     if (!photo) {
       return;
     }
-    readPhotoDataUrl(photo.filepath).then((url) => {
+
+    getPhotoRotation(photo.id).then((degrees) => {
+      if (!cancelled) {
+        setRotation(degrees);
+      }
+    });
+    readPhotoDataUrl(photo.id, photo.filepath).then((url) => {
       if (!cancelled) {
         setDataUrl(url);
       }
     });
+
     return () => {
       cancelled = true;
     };
@@ -48,11 +61,28 @@ export function Lightbox({ photos, currentIndex, onClose, onNavigate }: Lightbox
     return null;
   }
 
+  const handleRotate = async (direction: 1 | -1) => {
+    const next = normalizeDegrees(rotation + direction * 90);
+    await setPhotoRotation(photo.id, next);
+    setRotation(next);
+    const url = await readPhotoDataUrl(photo.id, photo.filepath);
+    setDataUrl(url);
+  };
+
   return (
     <div className="lightbox" role="dialog" aria-modal="true" aria-label={photo.title ?? photo.filename}>
       <button type="button" className="lightbox__close" aria-label="閉じる" onClick={onClose}>
         ×
       </button>
+
+      <div className="lightbox__toolbar">
+        <button type="button" aria-label="反時計回りに回転" onClick={() => handleRotate(-1)}>
+          ↺
+        </button>
+        <button type="button" aria-label="時計回りに回転" onClick={() => handleRotate(1)}>
+          ↻
+        </button>
+      </div>
 
       {currentIndex > 0 && (
         <button

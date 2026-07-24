@@ -31,10 +31,18 @@ export async function searchPhotos(query: string): Promise<Photo[]> {
   return invoke<Photo[]>("search_photos_command", { query });
 }
 
-export async function readPhotoDataUrl(relativePath: string): Promise<string> {
-  return invoke<string>("read_photo_data_url", { relativePath });
+export async function readPhotoDataUrl(photoId: string, relativePath: string): Promise<string> {
+  return invoke<string>("read_photo_data_url", { photoId, relativePath });
 }
 
 export async function getThumbnailDataUrl(photoId: string, relativePath: string): Promise<string> {
   return invoke<string>("get_thumbnail_data_url", { photoId, relativePath });
+}
+
+export async function setPhotoRotation(photoId: string, degrees: number): Promise<void> {
+  await invoke("set_photo_rotation", { photoId, degrees });
+}
+
+export async function getPhotoRotation(photoId: string): Promise<number> {
+  return invoke<number>("get_photo_rotation", { photoId });
 }

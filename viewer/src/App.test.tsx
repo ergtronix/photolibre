@@ -13,6 +13,8 @@ const {
   searchPhotosMock,
   readPhotoDataUrlMock,
   getThumbnailDataUrlMock,
+  getPhotoRotationMock,
+  setPhotoRotationMock,
 } = vi.hoisted(() => ({
   getArchivePathMock: vi.fn(),
   listAlbumsMock: vi.fn(),
@@ -21,6 +23,8 @@ const {
   searchPhotosMock: vi.fn(),
   readPhotoDataUrlMock: vi.fn(),
   getThumbnailDataUrlMock: vi.fn(),
+  getPhotoRotationMock: vi.fn(),
+  setPhotoRotationMock: vi.fn(),
 }));
 
 vi.mock("./lib/api", () => ({
@@ -31,6 +35,8 @@ vi.mock("./lib/api", () => ({
   searchPhotos: searchPhotosMock,
   readPhotoDataUrl: readPhotoDataUrlMock,
   getThumbnailDataUrl: getThumbnailDataUrlMock,
+  getPhotoRotation: getPhotoRotationMock,
+  setPhotoRotation: setPhotoRotationMock,
   setArchivePath: vi.fn(),
 }));
 
@@ -74,6 +80,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   readPhotoDataUrlMock.mockResolvedValue("data:image/jpeg;base64,AAAA");
   getThumbnailDataUrlMock.mockResolvedValue("data:image/jpeg;base64,AAAA");
+  getPhotoRotationMock.mockResolvedValue(0);
+  setPhotoRotationMock.mockResolvedValue(undefined);
 });
 
 describe("App", () => {

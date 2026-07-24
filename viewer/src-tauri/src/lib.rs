@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod mime;
+mod rotation;
 mod thumbnail;
 
 use commands::ArchiveState;
@@ -21,6 +22,8 @@ pub fn run() {
             commands::search_photos_command,
             commands::read_photo_data_url,
             commands::get_thumbnail_data_url,
+            commands::get_photo_rotation,
+            commands::set_photo_rotation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

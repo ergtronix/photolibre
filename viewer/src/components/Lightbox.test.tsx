@@ -5,8 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 import { Lightbox } from "./Lightbox";
 import type { Photo } from "../lib/types";
 
+const { getPhotoRotationMock, setPhotoRotationMock } = vi.hoisted(() => ({
+  getPhotoRotationMock: vi.fn().mockResolvedValue(0),
+  setPhotoRotationMock: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../lib/api", () => ({
   readPhotoDataUrl: vi.fn().mockResolvedValue("data:image/jpeg;base64,AAAA"),
+  getPhotoRotation: getPhotoRotationMock,
+  setPhotoRotation: setPhotoRotationMock,
 }));
 
 function makePhoto(overrides: Partial<Photo> = {}): Photo {
@@ -99,5 +106,29 @@ describe("Lightbox", () => {
     await user.keyboard("{ArrowRight}");
 
     expect(onNavigate).toHaveBeenCalledWith(1);
+  });
+
+  it("rotates clockwise from the currently stored rotation", async () => {
+    const user = userEvent.setup();
+    getPhotoRotationMock.mockResolvedValueOnce(90);
+    const photos = [makePhoto({ id: "1" })];
+
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(getPhotoRotationMock).toHaveBeenCalledWith("1"));
+    await user.click(screen.getByRole("button", { name: "時計回りに回転" }));
+
+    await waitFor(() => expect(setPhotoRotationMock).toHaveBeenCalledWith("1", 180));
+  });
+
+  it("rotates counter-clockwise and wraps around at 0", async () => {
+    const user = userEvent.setup();
+    getPhotoRotationMock.mockResolvedValueOnce(0);
+    const photos = [makePhoto({ id: "1" })];
+
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(getPhotoRotationMock).toHaveBeenCalledWith("1"));
+    await user.click(screen.getByRole("button", { name: "反時計回りに回転" }));
+
+    await waitFor(() => expect(setPhotoRotationMock).toHaveBeenCalledWith("1", 270));
   });
 });
