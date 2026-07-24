@@ -154,7 +154,7 @@ describe("Lightbox", () => {
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "拡大" }));
 
-    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1.25)" });
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1.25)" });
   });
 
   it("zooms out when the zoom-out button is clicked", async () => {
@@ -165,7 +165,7 @@ describe("Lightbox", () => {
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "縮小" }));
 
-    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(0.75)" });
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(0.75)" });
   });
 
   it("zooms in on Ctrl+wheel scroll up but ignores plain wheel scroll", async () => {
@@ -176,10 +176,10 @@ describe("Lightbox", () => {
 
     const content = screen.getByRole("img").parentElement!;
     fireEvent.wheel(content, { deltaY: -100, ctrlKey: false });
-    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1)" });
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" });
 
     fireEvent.wheel(content, { deltaY: -100, ctrlKey: true });
-    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1.25)" });
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1.25)" });
   });
 
   it("resets zoom when navigating to a different photo", async () => {
@@ -191,10 +191,57 @@ describe("Lightbox", () => {
     );
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "拡大" }));
-    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1.25)" });
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1.25)" });
 
     rerender(<Lightbox photos={photos} currentIndex={1} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1)" }));
+    await waitFor(() => expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" }));
+  });
+
+  it("pans the image by dragging with the left mouse button", async () => {
+    const photos = [makePhoto({ id: "1" })];
+
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+
+    const content = screen.getByRole("img").parentElement!;
+    fireEvent.mouseDown(content, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(content, { clientX: 130, clientY: 115 });
+
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(30px, 15px) scale(1)" });
+  });
+
+  it("stops panning once the mouse button is released", async () => {
+    const photos = [makePhoto({ id: "1" })];
+
+    render(<Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+
+    const content = screen.getByRole("img").parentElement!;
+    fireEvent.mouseDown(content, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(content, { clientX: 130, clientY: 115 });
+    fireEvent.mouseUp(content);
+    fireEvent.mouseMove(content, { clientX: 200, clientY: 200 });
+
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(30px, 15px) scale(1)" });
+  });
+
+  it("resets pan when navigating to a different photo", async () => {
+    const photos = [makePhoto({ id: "1" }), makePhoto({ id: "2" })];
+
+    const { rerender } = render(
+      <Lightbox photos={photos} currentIndex={0} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />
+    );
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+    const content = screen.getByRole("img").parentElement!;
+    fireEvent.mouseDown(content, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(content, { clientX: 130, clientY: 115 });
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(30px, 15px) scale(1)" });
+
+    rerender(<Lightbox photos={photos} currentIndex={1} onClose={vi.fn()} onNavigate={vi.fn()} onRotated={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" })
+    );
   });
 });

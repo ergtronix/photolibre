@@ -222,19 +222,24 @@ button:hover {
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
-  overflow: auto;
+  /* ネイティブのスクロールバーには頼らず、pan(translate)を自前で
+     計算して表示位置を動かすため、はみ出し分は隠す。 */
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+
+.lightbox__content:active {
+  cursor: grabbing;
 }
 
 .lightbox__content img {
   max-width: 90vw;
   max-height: 80vh;
   object-fit: contain;
-  /* centerを基点にすると拡大時に画像が上下左右へ均等にはみ出し、
-     はみ出した上側・左側にスクロールで届かなくなる
-     （scrollTopは0未満にできないため）。top leftを基点にすることで
-     拡大分は常に下・右方向にのみ増え、スクロールで全域に到達できる。 */
-  transform-origin: top left;
-  transition: transform 0.1s ease-out;
+  /* pan(translate)は常にcenter基点のscaleの後に画面座標で適用するため、
+     zoomToPointの計算もtransform-origin: centerを前提にしている。 */
+  transform-origin: center;
 }
 
 .lightbox__caption {
