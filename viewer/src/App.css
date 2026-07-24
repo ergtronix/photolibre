@@ -188,6 +188,21 @@ button:hover {
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
 }
 
+.photo-thumbnail__albums {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 4px;
+  font-size: 0.7em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
 /* --- Lightbox --- */
 
 .lightbox {

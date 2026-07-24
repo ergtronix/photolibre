@@ -14,6 +14,8 @@ export interface Photo {
   width: number | null;
   height: number | null;
   source: string;
+  /** 検索結果でのみ設定される、この写真が属するアルバム名の一覧。 */
+  albumNames: string[] | null;
 }
 
 export interface Album {

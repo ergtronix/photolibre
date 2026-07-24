@@ -61,6 +61,7 @@ function makePhoto(overrides: Partial<Photo> = {}): Photo {
     width: 100,
     height: 100,
     source: "source_a",
+    albumNames: null,
     ...overrides,
   };
 }

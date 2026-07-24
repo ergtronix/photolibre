@@ -20,7 +20,21 @@ fn row_to_photo(row: &Row) -> rusqlite::Result<Photo> {
         width: row.get("width")?,
         height: row.get("height")?,
         source: row.get("source")?,
+        album_names: None,
     })
+}
+
+/// photo_idが属するアルバム名の一覧を返す（アルバム名の昇順）。
+fn album_names_for_photo(conn: &Connection, photo_id: &str) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT a.name FROM albums a \
+         JOIN album_photos ap ON ap.album_id = a.id \
+         WHERE ap.photo_id = ? \
+         ORDER BY a.name ASC",
+    )?;
+    let rows = stmt.query_map([photo_id], |row| row.get::<_, String>(0))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::from)
 }
 
 pub fn list_photos(conn: &Connection, filter: &PhotoFilter) -> Result<Vec<Photo>, DbError> {
@@ -123,8 +137,15 @@ pub fn search_photos(conn: &Connection, query: &str) -> Result<Vec<Photo>, DbErr
          ORDER BY p.date_taken ASC",
     )?;
     let rows = stmt.query_map([&pattern], row_to_photo)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(DbError::from)
+    let mut photos = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+
+    // 検索結果は件数が少ない前提のため、写真ごとに所属アルバム名を
+    // 追加で取得しても一覧表示のような大量件数にはならず問題にならない。
+    for photo in &mut photos {
+        photo.album_names = Some(album_names_for_photo(conn, &photo.id)?);
+    }
+
+    Ok(photos)
 }
 
 #[cfg(test)]
@@ -459,5 +480,53 @@ mod tests {
         let photos = search_photos(&conn, "運動会").unwrap();
 
         assert_eq!(photos.len(), 1);
+    }
+
+    #[test]
+    fn search_photos_includes_all_album_names_the_photo_belongs_to() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "IMG_0001.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        conn.execute(
+            "INSERT INTO albums (id, name, source) VALUES ('alb1', '七五三', 'source_a'), ('alb2', '家族写真', 'source_a')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO album_photos (album_id, photo_id) VALUES ('alb1', '1'), ('alb2', '1')",
+            [],
+        )
+        .unwrap();
+
+        let photos = search_photos(&conn, "七五三").unwrap();
+
+        assert_eq!(photos.len(), 1);
+        assert_eq!(
+            photos[0].album_names,
+            Some(vec!["七五三".to_string(), "家族写真".to_string()])
+        );
+    }
+
+    #[test]
+    fn search_photos_sets_empty_album_names_when_photo_belongs_to_no_album() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "sunset.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+
+        let photos = search_photos(&conn, "sunset").unwrap();
+
+        assert_eq!(photos[0].album_names, Some(vec![]));
     }
 }

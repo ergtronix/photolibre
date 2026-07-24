@@ -56,6 +56,9 @@ export function PhotoThumbnail({ photo, onClick }: PhotoThumbnailProps) {
         <div className="photo-thumbnail__loading" />
       )}
       {photo.favorite && <span className="photo-thumbnail__favorite">★</span>}
+      {photo.albumNames && photo.albumNames.length > 0 && (
+        <span className="photo-thumbnail__albums">{photo.albumNames.join(" / ")}</span>
+      )}
     </button>
   );
 }

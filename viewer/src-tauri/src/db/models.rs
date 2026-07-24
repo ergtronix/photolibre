@@ -18,6 +18,9 @@ pub struct Photo {
     pub width: Option<i64>,
     pub height: Option<i64>,
     pub source: String,
+    /// この写真が属するアルバム名。検索結果でのみ設定し、一覧表示では
+    /// 常にNone（N+1クエリを避け、大量件数の一覧表示を遅くしないため）。
+    pub album_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

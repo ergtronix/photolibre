@@ -26,6 +26,7 @@ function makePhoto(overrides: Partial<Photo> = {}): Photo {
     width: 100,
     height: 100,
     source: "source_a",
+    albumNames: null,
     ...overrides,
   };
 }
@@ -62,5 +63,21 @@ describe("PhotoGrid", () => {
     render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
 
     await waitFor(() => expect(screen.getByText("★")).toBeInTheDocument());
+  });
+
+  it("shows the album names a photo belongs to when present (search results)", () => {
+    const photos = [makePhoto({ id: "1", albumNames: ["七五三", "家族写真"] })];
+
+    render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
+
+    expect(screen.getByText("七五三 / 家族写真")).toBeInTheDocument();
+  });
+
+  it("does not show an album caption when albumNames is empty or null", () => {
+    const photos = [makePhoto({ id: "1", albumNames: [] }), makePhoto({ id: "2", albumNames: null })];
+
+    render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
+
+    expect(document.querySelector(".photo-thumbnail__albums")).not.toBeInTheDocument();
   });
 });
