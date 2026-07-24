@@ -24,6 +24,7 @@ pub fn run() {
             commands::get_thumbnail_data_url,
             commands::get_photo_rotation,
             commands::set_photo_rotation,
+            commands::open_photo_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

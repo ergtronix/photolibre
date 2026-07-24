@@ -46,3 +46,7 @@ export async function setPhotoRotation(photoId: string, degrees: number): Promis
 export async function getPhotoRotation(photoId: string): Promise<number> {
   return invoke<number>("get_photo_rotation", { photoId });
 }
+
+export async function openPhotoFile(relativePath: string): Promise<void> {
+  await invoke("open_photo_file", { relativePath });
+}

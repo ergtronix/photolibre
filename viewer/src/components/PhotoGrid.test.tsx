@@ -5,8 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import { PhotoGrid } from "./PhotoGrid";
 import type { Photo } from "../lib/types";
 
+const { openPhotoFileMock } = vi.hoisted(() => ({
+  openPhotoFileMock: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../lib/api", () => ({
   getThumbnailDataUrl: vi.fn().mockResolvedValue("data:image/jpeg;base64,AAAA"),
+  openPhotoFile: openPhotoFileMock,
 }));
 
 function makePhoto(overrides: Partial<Photo> = {}): Photo {
@@ -79,5 +84,26 @@ describe("PhotoGrid", () => {
     render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
 
     expect(document.querySelector(".photo-thumbnail__albums")).not.toBeInTheDocument();
+  });
+
+  it("shows a generic video placeholder instead of a decoded thumbnail for videos", () => {
+    const photos = [makePhoto({ id: "1", mediaType: "video", filename: "clip.mov" })];
+
+    render(<PhotoGrid photos={photos} onSelect={vi.fn()} photoVersions={{}} />);
+
+    expect(screen.getByText("動画")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("opens the video with the system player instead of selecting it when clicked", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const photos = [makePhoto({ id: "1", mediaType: "video", filename: "clip.mov", filepath: "photos/2020/01/clip.mov" })];
+
+    render(<PhotoGrid photos={photos} onSelect={onSelect} photoVersions={{}} />);
+    await user.click(screen.getByRole("button", { name: "clip.mov" }));
+
+    expect(openPhotoFileMock).toHaveBeenCalledWith("photos/2020/01/clip.mov");
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

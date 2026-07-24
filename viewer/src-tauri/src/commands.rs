@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use base64::Engine;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::db::{self, Album, Photo, PhotoFilter};
 use crate::mime::mime_type_for_extension;
@@ -234,6 +235,22 @@ pub fn set_photo_rotation(
         std::fs::remove_file(&full_cache_path).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// 動画ファイルをOS標準の動画プレイヤーで開く。動画のインライン再生や
+/// コマ抽出サムネイル生成は実装コストが大きいため、既存の動画アプリに
+/// 再生を任せる設計とした（ERGと合意済み）。
+#[tauri::command]
+pub fn open_photo_file(
+    app: AppHandle,
+    state: State<ArchiveState>,
+    relative_path: String,
+) -> Result<(), String> {
+    let archive_root = require_archive_path(&state)?;
+    let resolved = resolve_safe_path(&archive_root, &relative_path)?;
+    app.opener()
+        .open_path(resolved.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
