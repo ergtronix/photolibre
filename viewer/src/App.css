@@ -229,7 +229,11 @@ button:hover {
   max-width: 90vw;
   max-height: 80vh;
   object-fit: contain;
-  transform-origin: center;
+  /* centerを基点にすると拡大時に画像が上下左右へ均等にはみ出し、
+     はみ出した上側・左側にスクロールで届かなくなる
+     （scrollTopは0未満にできないため）。top leftを基点にすることで
+     拡大分は常に下・右方向にのみ増え、スクロールで全域に到達できる。 */
+  transform-origin: top left;
   transition: transform 0.1s ease-out;
 }
 
