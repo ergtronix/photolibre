@@ -148,3 +148,28 @@ def finalize_duplicate(
         (canonical_photo_id, duplicate_relpath, original_source_relpath, sha256, detected_at),
     )
     conn.commit()
+
+
+def merge_albums(conn: sqlite3.Connection, canonical_album_id: str, duplicate_album_id: str) -> None:
+    """名称完全一致で同一イベントと確認されたアルバムを統合する。
+    duplicate_album_id側の写真の紐付けをcanonical_album_idへ引き継いだ上で、
+    duplicate_album_id自体のアルバム行は削除する（写真本体は一切変更しない）。"""
+    photo_ids = [
+        row[0]
+        for row in conn.execute(
+            "SELECT photo_id FROM album_photos WHERE album_id = ?", (duplicate_album_id,)
+        ).fetchall()
+    ]
+    for photo_id in photo_ids:
+        conn.execute(
+            """
+            INSERT INTO album_photos (album_id, photo_id)
+            VALUES (?, ?)
+            ON CONFLICT (album_id, photo_id) DO NOTHING
+            """,
+            (canonical_album_id, photo_id),
+        )
+
+    conn.execute("DELETE FROM album_photos WHERE album_id = ?", (duplicate_album_id,))
+    conn.execute("DELETE FROM albums WHERE id = ?", (duplicate_album_id,))
+    conn.commit()

@@ -22,6 +22,7 @@ from photolibre_importer.hashing import hash_file
 from photolibre_importer.integrate import (
     finalize_duplicate,
     link_album_photo,
+    merge_albums,
     record_album,
     record_source_a_photo,
     record_source_b_photo,
@@ -170,6 +171,17 @@ def apply_dedup(archive_root: Path, conn: sqlite3.Connection, path_to_photo_id: 
 
 def apply_album_review(conn: sqlite3.Connection, source_a_album_names: list[str], source_b_album_names: list[str], created_at: str):
     result = reconcile_albums(source_a_album_names, source_b_album_names)
+
+    for a_name, b_name in result.merged:
+        canonical = conn.execute(
+            "SELECT id FROM albums WHERE name = ? AND source = 'source_a'", (a_name,)
+        ).fetchone()
+        duplicate = conn.execute(
+            "SELECT id FROM albums WHERE name = ? AND source = 'source_b'", (b_name,)
+        ).fetchone()
+        if canonical and duplicate:
+            merge_albums(conn, canonical_album_id=canonical[0], duplicate_album_id=duplicate[0])
+
     for a_name, b_name in result.review:
         conn.execute(
             """

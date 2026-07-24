@@ -7,6 +7,7 @@ import pytest
 from photolibre_importer.integrate import (
     finalize_duplicate,
     link_album_photo,
+    merge_albums,
     record_album,
     record_source_a_photo,
     record_source_b_photo,
@@ -190,5 +191,50 @@ def test_finalize_duplicate_does_not_duplicate_album_link_already_on_canonical(c
 
     count = conn.execute(
         "SELECT count(*) FROM album_photos WHERE album_id = ? AND photo_id = 'CANON'", (album_id,)
+    ).fetchone()[0]
+    assert count == 1
+
+
+def test_merge_albums_moves_photo_links_to_canonical_and_removes_duplicate(conn):
+    photo_a = _source_a_photo(uuid="PHOTO-A")
+    photo_b = _source_b_photo(photo_id="1")
+    record_source_a_photo(conn, photo_a, filepath="a.jpg", sha256="hash-a", imported_at="t")
+    record_source_b_photo(conn, photo_b, filepath="b.jpg", sha256="hash-b", imported_at="t")
+
+    canonical_id = record_album(conn, name="20031011麻の実運動会", source="source_a")
+    duplicate_id = record_album(conn, name="20031011麻の実運動会", source="source_b")
+    link_album_photo(conn, album_id=canonical_id, photo_id="PHOTO-A")
+    link_album_photo(conn, album_id=duplicate_id, photo_id="source_b-1")
+
+    merge_albums(conn, canonical_album_id=canonical_id, duplicate_album_id=duplicate_id)
+
+    # 重複アルバム行自体は削除される
+    remaining = conn.execute("SELECT id FROM albums WHERE id = ?", (duplicate_id,)).fetchone()
+    assert remaining is None
+
+    # 重複アルバムに紐づいていた写真は正本アルバムへ引き継がれる
+    linked_photo_ids = {
+        row[0]
+        for row in conn.execute(
+            "SELECT photo_id FROM album_photos WHERE album_id = ?", (canonical_id,)
+        ).fetchall()
+    }
+    assert linked_photo_ids == {"PHOTO-A", "source_b-1"}
+
+
+def test_merge_albums_does_not_duplicate_link_already_on_canonical(conn):
+    photo = _source_a_photo(uuid="PHOTO-A")
+    record_source_a_photo(conn, photo, filepath="a.jpg", sha256="hash-a", imported_at="t")
+
+    canonical_id = record_album(conn, name="運動会", source="source_a")
+    duplicate_id = record_album(conn, name="運動会", source="source_b")
+    link_album_photo(conn, album_id=canonical_id, photo_id="PHOTO-A")
+    link_album_photo(conn, album_id=duplicate_id, photo_id="PHOTO-A")
+
+    merge_albums(conn, canonical_album_id=canonical_id, duplicate_album_id=duplicate_id)
+
+    count = conn.execute(
+        "SELECT count(*) FROM album_photos WHERE album_id = ? AND photo_id = 'PHOTO-A'",
+        (canonical_id,),
     ).fetchone()[0]
     assert count == 1
