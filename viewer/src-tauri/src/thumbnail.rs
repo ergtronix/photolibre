@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use image::DynamicImage;
 
+use crate::safe_id::is_safe_id;
+
 const THUMBNAIL_MAX_DIMENSION: u32 = 320;
 
 #[derive(Debug, thiserror::Error)]
@@ -13,10 +15,17 @@ pub enum ThumbnailError {
 }
 
 /// サムネイルキャッシュのパスを返す（archive_root/.thumbnails/{photo_id}.jpg）。
-pub fn thumbnail_cache_path(archive_root: &Path, photo_id: &str) -> PathBuf {
-    archive_root
-        .join(".thumbnails")
-        .join(format!("{photo_id}.jpg"))
+/// photo_idが安全な形式（英数字・ハイフン・アンダースコアのみ）でない場合は
+/// Noneを返す（パストラバーサル対策。詳細はsafe_id::is_safe_idを参照）。
+pub fn thumbnail_cache_path(archive_root: &Path, photo_id: &str) -> Option<PathBuf> {
+    if !is_safe_id(photo_id) {
+        return None;
+    }
+    Some(
+        archive_root
+            .join(".thumbnails")
+            .join(format!("{photo_id}.jpg")),
+    )
 }
 
 /// EXIFのOrientationタグ（1〜8）に従い、画像を正しい向きに補正する。
@@ -174,7 +183,19 @@ mod tests {
 
         let path = thumbnail_cache_path(archive_root, "UUID-1");
 
-        assert_eq!(path, Path::new("E:/archive/.thumbnails/UUID-1.jpg"));
+        assert_eq!(
+            path,
+            Some(PathBuf::from("E:/archive/.thumbnails/UUID-1.jpg"))
+        );
+    }
+
+    #[test]
+    fn thumbnail_cache_path_rejects_path_traversal_in_photo_id() {
+        let archive_root = Path::new("E:/archive");
+
+        let path = thumbnail_cache_path(archive_root, "../../../etc/passwd");
+
+        assert_eq!(path, None);
     }
 
     fn wide_test_image() -> image::DynamicImage {

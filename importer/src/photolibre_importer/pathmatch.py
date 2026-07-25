@@ -24,9 +24,21 @@ def resolve_normalized_path(root: Path, relative_path: Path | str) -> Path | Non
 
     セグメントごとに、完全一致→NFC正規化一致→コロン置換一致の順で
     ディレクトリエントリを探す。どのセグメントも見つからない場合はNoneを返す。
+
+    relative_pathはAlbumData.xml等、信頼できない外部データに由来する文字列
+    であるため、パストラバーサル対策として次の2点を行う:
+    - セグメントが".."の場合は即座にNoneを返す
+      （正規のApple Photos/iPhotoの相対パスにこれは現れない。なお"."は
+      Path()がパース時に自動的に取り除くためここでの判定は不要）
+    - 解決結果が最終的にroot配下に収まっているかを確認し、収まっていなければ
+      Noneを返す（シンボリックリンク経由での脱出等への防御）
     """
+    resolved_root = Path(root).resolve()
     current = Path(root)
     for part in Path(relative_path).parts:
+        if part == "..":
+            return None
+
         candidate = current / part
         if candidate.exists():
             current = candidate
@@ -45,5 +57,8 @@ def resolve_normalized_path(root: Path, relative_path: Path | str) -> Path | Non
         if match is None:
             return None
         current = match
+
+    if not current.resolve().is_relative_to(resolved_root):
+        return None
 
     return current

@@ -1,6 +1,8 @@
 import unicodedata
 from pathlib import Path
 
+import pytest
+
 from photolibre_importer.pathmatch import resolve_normalized_path
 
 # 「が」= NFC単体合字(U+304C) / NFD分解形(か+濁点 U+304B U+3099)
@@ -67,3 +69,46 @@ def test_resolve_normalized_path_matches_macos_colon_substitution(tmp_path):
     resolved = resolve_normalized_path(tmp_path, requested_relpath)
 
     assert resolved == real_file
+
+
+def test_resolve_normalized_path_rejects_dotdot_traversal(tmp_path):
+    # AlbumData.xmlのImagePath等、信頼できない外部データに".."が
+    # 含まれていた場合、root外への脱出を許してはならない。
+    secret = tmp_path.parent / "secret.txt"
+    secret.write_bytes(b"secret")
+    (tmp_path / "Originals").mkdir()
+
+    resolved = resolve_normalized_path(tmp_path / "Originals", f"../../{secret.name}")
+
+    assert resolved is None
+
+
+def test_resolve_normalized_path_still_resolves_a_leading_dot_segment_normally(tmp_path):
+    # "."はPath()のパース時に自動的に取り除かれるため、危険ではなく
+    # 通常通り解決できる（".."とは異なり明示的な拒否は不要）ことの確認。
+    target = tmp_path / "file.jpg"
+    target.write_bytes(b"data")
+
+    resolved = resolve_normalized_path(tmp_path, "./file.jpg")
+
+    assert resolved == target
+
+
+def test_resolve_normalized_path_rejects_result_escaping_root_via_matched_symlink(tmp_path):
+    # ".."を挟まない場合でも、マッチしたエントリ自体がroot外を指す
+    # シンボリックリンクであれば最終境界チェックで弾く。
+    outside_target = tmp_path.parent / "outside_dir"
+    outside_target.mkdir()
+    (outside_target / "leaked.jpg").write_bytes(b"data")
+
+    root = tmp_path / "Originals"
+    root.mkdir()
+    symlink_path = root / "escape_link"
+    try:
+        symlink_path.symlink_to(outside_target, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation not permitted in this environment")
+
+    resolved = resolve_normalized_path(root, "escape_link/leaked.jpg")
+
+    assert resolved is None

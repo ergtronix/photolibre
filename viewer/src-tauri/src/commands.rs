@@ -234,7 +234,8 @@ pub async fn read_photo_data_url(
 
     // 回転済みフルサイズ画像のキャッシュがあれば、デコード・再エンコードせず
     // そのまま返す（表示のたびに毎回回転処理をやり直すと非常に遅いため）。
-    let cache_path = rotated_full_cache_path(&archive_root, &photo_id);
+    let cache_path = rotated_full_cache_path(&archive_root, &photo_id)
+        .ok_or_else(|| "不正な写真IDです".to_string())?;
     if !cache_path.exists() {
         let cache_path_for_task = cache_path.clone();
         tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -274,7 +275,8 @@ pub async fn get_thumbnail_data_url(
     relative_path: String,
 ) -> Result<String, String> {
     let archive_root = require_archive_path(&state)?;
-    let cache_path = thumbnail_cache_path(&archive_root, &photo_id);
+    let cache_path = thumbnail_cache_path(&archive_root, &photo_id)
+        .ok_or_else(|| "不正な写真IDです".to_string())?;
 
     if !cache_path.exists() {
         let resolved_source = resolve_safe_path(&archive_root, &relative_path)?;
@@ -312,12 +314,14 @@ pub fn set_photo_rotation(
     let archive_root = require_archive_path(&state)?;
     rotation::set_rotation(&archive_root, &photo_id, degrees).map_err(|e| e.to_string())?;
 
-    let thumb_cache_path = thumbnail_cache_path(&archive_root, &photo_id);
+    let thumb_cache_path = thumbnail_cache_path(&archive_root, &photo_id)
+        .ok_or_else(|| "不正な写真IDです".to_string())?;
     if thumb_cache_path.exists() {
         std::fs::remove_file(&thumb_cache_path).map_err(|e| e.to_string())?;
     }
 
-    let full_cache_path = rotated_full_cache_path(&archive_root, &photo_id);
+    let full_cache_path = rotated_full_cache_path(&archive_root, &photo_id)
+        .ok_or_else(|| "不正な写真IDです".to_string())?;
     if full_cache_path.exists() {
         std::fs::remove_file(&full_cache_path).map_err(|e| e.to_string())?;
     }

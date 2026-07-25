@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::safe_id::is_safe_id;
+
 /// 手動回転の指定は元の写真ファイルを一切書き換えず、
 /// archive_root配下の専用ファイルに「photo_id -> 回転角度」として保存する。
 fn rotation_store_path(archive_root: &Path) -> PathBuf {
@@ -15,11 +17,18 @@ pub fn normalize_degrees(degrees: i32) -> i32 {
 /// 手動回転を適用済みのフルサイズ画像をキャッシュするパス。
 /// 毎回デコード・回転・再エンコードすると表示のたびに時間がかかるため、
 /// 一度生成した結果を保存し使い回す（回転角度が変わった時のみ再生成する）。
-pub fn rotated_full_cache_path(archive_root: &Path, photo_id: &str) -> PathBuf {
-    archive_root
-        .join(".viewer_state")
-        .join("rotated_full")
-        .join(format!("{photo_id}.jpg"))
+/// photo_idが安全な形式でない場合はNoneを返す（パストラバーサル対策。
+/// 詳細はsafe_id::is_safe_idを参照）。
+pub fn rotated_full_cache_path(archive_root: &Path, photo_id: &str) -> Option<PathBuf> {
+    if !is_safe_id(photo_id) {
+        return None;
+    }
+    Some(
+        archive_root
+            .join(".viewer_state")
+            .join("rotated_full")
+            .join(format!("{photo_id}.jpg")),
+    )
 }
 
 fn load_all(archive_root: &Path) -> HashMap<String, i32> {
@@ -134,7 +143,18 @@ mod tests {
 
         assert_eq!(
             path,
-            Path::new("E:/archive/.viewer_state/rotated_full/UUID-1.jpg")
+            Some(PathBuf::from(
+                "E:/archive/.viewer_state/rotated_full/UUID-1.jpg"
+            ))
         );
+    }
+
+    #[test]
+    fn rotated_full_cache_path_rejects_path_traversal_in_photo_id() {
+        let archive_root = Path::new("E:/archive");
+
+        let path = rotated_full_cache_path(archive_root, "../../../etc/passwd");
+
+        assert_eq!(path, None);
     }
 }

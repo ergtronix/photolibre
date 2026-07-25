@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod mime;
 mod rotation;
+mod safe_id;
 mod thumbnail;
 
 use commands::ArchiveState;
