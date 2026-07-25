@@ -21,26 +21,42 @@ pipx install osxphotos
 
 ---
 
-## 1-2. Photos.appライブラリのエクスポート
+## 1-2. Photos.appライブラリのエクスポート（Macの内蔵ストレージへ）
 
-外付けドライブ（USBメモリ等）をマウントした状態で、以下を実行します。
+**USBメモリへの直接エクスポートは避けてください。** 実際に試したところ、`osxphotos export`の出力先をUSBメモリのマウントポイントに直接指定すると、エクスポートが完了しませんでした（原因未確認。外付けのHDD/SSDであれば書き込み速度等の違いにより成功する可能性はありますが、こちらは未検証です）。必ずMacの内蔵ストレージ上のフォルダへ一旦エクスポートしてください。
 
 ```bash
-mkdir -p /Volumes/{外付けドライブ名}/source_a_photos_app && \
-osxphotos export /Volumes/{外付けドライブ名}/source_a_photos_app \
+mkdir -p ~/Desktop/photos_export_local && \
+osxphotos export ~/Desktop/photos_export_local \
   --directory "{created.strftime,%Y/%m}" \
   --filename "{original_name}" \
   --sidecar xmp \
-  2>&1 | tee /Volumes/{外付けドライブ名}/source_a_photos_app/export_log.txt
+  2>&1 | tee ~/Desktop/photos_export_local/export_log.txt
 ```
 
-**重要: `--exiftool`オプションは付けないでください。** メタデータ埋め込みのため1枚ごとに外部プロセスを起動する仕様上、2010年前後の古いiMac＋USB 2.0環境では**通常の480倍近く時間がかかる**ことを実データで確認しています（実測: `--exiftool`ありで10時間以上、なしで1分15秒）。写真の日時・お気に入り等のメタデータは`--sidecar xmp`で生成されるXMPサイドカーファイルに保存されるため、`--exiftool`なしでも情報は失われません。
+**重要: `--exiftool`オプションは付けないでください。** メタデータ埋め込みのため1枚ごとに外部プロセスを起動する仕様上、2010年前後の古いiMac環境では**通常の480倍近く時間がかかる**ことを実データで確認しています（実測: `--exiftool`ありで10時間以上、なしで1分15秒）。写真の日時・お気に入り等のメタデータは`--sidecar xmp`で生成されるXMPサイドカーファイルに保存されるため、`--exiftool`なしでも情報は失われません。
 
 実行後、エクスポート先フォルダの中に `.osxphotos_export.db` と、年/月ごとに整理された写真フォルダが作成されていれば成功です。
 
 ---
 
-## 1-3.（iPhotoもお使いの場合）iPhotoライブラリのコピー
+## 1-3. エクスポート結果をUSBメモリ等の外部メディアへコピー
+
+外付けドライブ（USBメモリ等）をマウントした状態で、1-2でローカルに作成したエクスポート結果をまるごとコピーします。
+
+```bash
+mkdir -p /Volumes/{外付けドライブ名}/source_a_photos_app && \
+rsync -avh --progress \
+  ~/Desktop/photos_export_local/ \
+  /Volumes/{外付けドライブ名}/source_a_photos_app/ \
+  | tee ~/Desktop/source_a_copy_log.txt
+```
+
+コピー後、`/Volumes/{外付けドライブ名}/source_a_photos_app/` の直下に `.osxphotos_export.db` と年/月ごとのフォルダが存在することを確認してください。
+
+---
+
+## 1-4.（iPhotoもお使いの場合）iPhotoライブラリのコピー
 
 Photos.appへ移行済みでも、2016年より前のiPhoto時代のアルバム情報や、Photos.appに引き継がれなかった古い写真が残っている場合があります。iPhotoライブラリ（`〜/Pictures/iPhoto Library.migratedphotolibrary`）がお使いのMacに存在する場合は、**別の**外付けドライブへ以下の2点をコピーしてください。
 
@@ -63,8 +79,8 @@ cp ~/Pictures/iPhoto\ Library.migratedphotolibrary/AlbumData.xml \
 
 ---
 
-## 1-4. Windowsへの転送
+## 1-5. Windowsへの転送
 
-1-2・1-3で使った外付けドライブ（1本のみの場合はそれ、2本使った場合は両方）を、そのままWindows PCへ接続してください。次のステップ（[02-import-and-view-windows.md](02-import-and-view-windows.md)）でこのデータを読み込みます。
+1-3・1-4で使った外付けドライブ（1本のみの場合はそれ、2本使った場合は両方）を、そのままWindows PCへ接続してください。次のステップ（[02-import-and-view-windows.md](02-import-and-view-windows.md)）でこのデータを読み込みます。
 
-iPhotoをお使いでない場合は1-3の手順は不要で、1-2のPhotos.appエクスポートのみで次のステップへ進めます。
+iPhotoをお使いでない場合は1-4の手順は不要で、1-2・1-3のPhotos.appエクスポートのみで次のステップへ進めます。
