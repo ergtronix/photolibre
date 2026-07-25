@@ -92,14 +92,6 @@ Source A（Photos.app）3,556枚・Source B（iPhoto、1998〜2016年分含む�
 
 ---
 
-## 今後の予定
-
-- デジカメ等、Apple以外の環境から取り込むための汎用インポート機能
-- PC初心者でも迷わず使える「アプリ起動だけで完結する」セットアップ体験（macOS側のエクスポート、Windows側の導入・取り込みの両方）
-- パッケージ化されたインストーラー（現状は`npm run tauri dev`での起動）
-
----
-
 ## ライセンス
 
 [GNU General Public License v3.0](LICENSE)
