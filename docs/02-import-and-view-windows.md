@@ -4,6 +4,8 @@ macOS側でエクスポートした写真データ（[01-export-macos.md](01-exp
 
 前提: [Python 3.11+](https://www.python.org/downloads/) と [Node.js](https://nodejs.org/)・[Rust](https://www.rust-lang.org/tools/install) がインストール済みであること。
 
+以降のコマンドは、すべて**Windows PowerShell**で実行します。スタートメニューで「PowerShell」と検索して起動してください（「Windows Terminal」でも構いません。コマンドプロンプト(cmd.exe)ではありません）。
+
 ---
 
 ## 2-1. リポジトリの取得
