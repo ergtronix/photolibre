@@ -12,6 +12,13 @@ const {
   listPhotosMock,
   listAlbumPhotosMock,
   searchPhotosMock,
+  listUnfiledPhotosMock,
+  countUnfiledPhotosMock,
+  createAlbumMock,
+  renameAlbumMock,
+  deleteViewerAlbumMock,
+  addPhotosToAlbumMock,
+  removePhotoFromAlbumMock,
   readPhotoDataUrlMock,
   getThumbnailDataUrlMock,
   getPhotoRotationMock,
@@ -23,6 +30,13 @@ const {
   listPhotosMock: vi.fn(),
   listAlbumPhotosMock: vi.fn(),
   searchPhotosMock: vi.fn(),
+  listUnfiledPhotosMock: vi.fn(),
+  countUnfiledPhotosMock: vi.fn(),
+  createAlbumMock: vi.fn(),
+  renameAlbumMock: vi.fn(),
+  deleteViewerAlbumMock: vi.fn(),
+  addPhotosToAlbumMock: vi.fn(),
+  removePhotoFromAlbumMock: vi.fn(),
   readPhotoDataUrlMock: vi.fn(),
   getThumbnailDataUrlMock: vi.fn(),
   getPhotoRotationMock: vi.fn(),
@@ -36,6 +50,13 @@ vi.mock("./lib/api", () => ({
   listPhotos: listPhotosMock,
   listAlbumPhotos: listAlbumPhotosMock,
   searchPhotos: searchPhotosMock,
+  listUnfiledPhotos: listUnfiledPhotosMock,
+  countUnfiledPhotos: countUnfiledPhotosMock,
+  createAlbum: createAlbumMock,
+  renameAlbum: renameAlbumMock,
+  deleteViewerAlbum: deleteViewerAlbumMock,
+  addPhotosToAlbum: addPhotosToAlbumMock,
+  removePhotoFromAlbum: removePhotoFromAlbumMock,
   readPhotoDataUrl: readPhotoDataUrlMock,
   getThumbnailDataUrl: getThumbnailDataUrlMock,
   getPhotoRotation: getPhotoRotationMock,
@@ -86,6 +107,13 @@ beforeEach(() => {
   getThumbnailDataUrlMock.mockResolvedValue("data:image/jpeg;base64,AAAA");
   getPhotoRotationMock.mockResolvedValue(0);
   setPhotoRotationMock.mockResolvedValue(undefined);
+  listUnfiledPhotosMock.mockResolvedValue([]);
+  countUnfiledPhotosMock.mockResolvedValue(0);
+  listAlbumPhotosMock.mockResolvedValue([]);
+  addPhotosToAlbumMock.mockResolvedValue(undefined);
+  removePhotoFromAlbumMock.mockResolvedValue(undefined);
+  renameAlbumMock.mockResolvedValue(undefined);
+  deleteViewerAlbumMock.mockResolvedValue(undefined);
 });
 
 describe("App", () => {
@@ -191,5 +219,134 @@ describe("App", () => {
 
     await waitFor(() => expect(pickAndSetArchivePathMock).toHaveBeenCalled());
     expect(listAlbumsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the unfiled photo count and switches to the unfiled view when selected", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([]);
+    listPhotosMock.mockResolvedValue([]);
+    countUnfiledPhotosMock.mockResolvedValue(2);
+    listUnfiledPhotosMock.mockResolvedValue([makePhoto({ id: "9", filename: "unfiled.jpg" })]);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /未分類/ })).toHaveTextContent("2"));
+
+    await user.click(screen.getByRole("button", { name: /未分類/ }));
+
+    await waitFor(() => expect(listUnfiledPhotosMock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "unfiled.jpg" })).toBeInTheDocument());
+  });
+
+  it("creates a new album via the sidebar and refreshes the album list", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([]);
+    listPhotosMock.mockResolvedValue([]);
+    createAlbumMock.mockResolvedValue({
+      id: "new-alb",
+      name: "夏休み",
+      albumType: "manual",
+      source: "viewer",
+      photoCount: 0,
+    });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "＋ 新しいアルバム" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "＋ 新しいアルバム" }));
+    await user.type(screen.getByPlaceholderText("アルバム名"), "夏休み{Enter}");
+
+    await waitFor(() => expect(createAlbumMock).toHaveBeenCalledWith("夏休み"));
+    await waitFor(() => expect(listAlbumsMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("renames an album via double-click", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([]);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("旅行")).toBeInTheDocument());
+
+    await user.dblClick(screen.getByText("旅行"));
+    const input = screen.getByDisplayValue("旅行");
+    await user.clear(input);
+    await user.type(input, "沖縄旅行{Enter}");
+
+    await waitFor(() => expect(renameAlbumMock).toHaveBeenCalledWith("alb1", "沖縄旅行"));
+  });
+
+  it("adds dropped photos to an album", async () => {
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([]);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("旅行")).toBeInTheDocument());
+
+    const albumItem = screen.getByText("旅行").closest("li");
+    if (!albumItem) {
+      throw new Error("album list item not found");
+    }
+    const dataTransfer = {
+      getData: (type: string) =>
+        type === "application/x-photolibre-photo-ids" ? JSON.stringify(["1", "2"]) : "",
+    };
+    albumItem.dispatchEvent(
+      Object.assign(new Event("drop", { bubbles: true, cancelable: true }), { dataTransfer })
+    );
+
+    await waitFor(() => expect(addPhotosToAlbumMock).toHaveBeenCalledWith("alb1", ["1", "2"]));
+  });
+
+  it("removes selected photos from the current album via the selection toolbar", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([]);
+    listAlbumPhotosMock.mockResolvedValue([makePhoto({ id: "2", filename: "b.jpg" })]);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("旅行")).toBeInTheDocument());
+
+    await user.click(screen.getByText("旅行"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "b.jpg" })).toBeInTheDocument());
+
+    await user.keyboard("[ControlLeft>]");
+    await user.click(screen.getByRole("button", { name: "b.jpg" }));
+    await user.keyboard("[/ControlLeft]");
+
+    await waitFor(() => expect(screen.getByText("1件選択中")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "アルバムから外す" }));
+
+    await waitFor(() => expect(removePhotoFromAlbumMock).toHaveBeenCalledWith("alb1", "2"));
+  });
+
+  it("undoes the most recent album creation with Ctrl+Z", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([]);
+    listPhotosMock.mockResolvedValue([]);
+    createAlbumMock.mockResolvedValue({
+      id: "new-alb",
+      name: "夏休み",
+      albumType: "manual",
+      source: "viewer",
+      photoCount: 0,
+    });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "＋ 新しいアルバム" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "＋ 新しいアルバム" }));
+    await user.type(screen.getByPlaceholderText("アルバム名"), "夏休み{Enter}");
+    await waitFor(() => expect(createAlbumMock).toHaveBeenCalled());
+
+    await user.click(document.body);
+    await user.keyboard("{Control>}z{/Control}");
+
+    await waitFor(() => expect(deleteViewerAlbumMock).toHaveBeenCalledWith("new-alb"));
   });
 });

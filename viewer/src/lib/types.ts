@@ -26,6 +26,13 @@ export interface Album {
   photoCount: number;
 }
 
+/** 左ペインでの表示対象。"すべての写真"・"未分類"・個別アルバムの3種類を
+ * 排他的に表現する（string|nullの組み合わせだと不正な状態を作れてしまうため）。 */
+export type AlbumSelection =
+  | { kind: "all" }
+  | { kind: "unfiled" }
+  | { kind: "album"; albumId: string };
+
 export interface PhotoFilter {
   favoriteOnly: boolean;
   year: number | null;

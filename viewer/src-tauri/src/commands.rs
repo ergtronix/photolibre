@@ -109,6 +109,73 @@ pub fn search_photos_command(
     db::search_photos(&conn, &query).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn list_unfiled_photos_command(state: State<ArchiveState>) -> Result<Vec<Photo>, String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive(&archive_root).map_err(|e| e.to_string())?;
+    db::list_unfiled_photos(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn count_unfiled_photos_command(state: State<ArchiveState>) -> Result<i64, String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive(&archive_root).map_err(|e| e.to_string())?;
+    db::count_unfiled_photos(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_album_command(state: State<ArchiveState>, name: String) -> Result<Album, String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
+    db::create_album(&conn, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_album_command(
+    state: State<ArchiveState>,
+    album_id: String,
+    new_name: String,
+) -> Result<(), String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
+    db::rename_album(&conn, &album_id, &new_name).map_err(|e| e.to_string())
+}
+
+/// アルバム新規作成のUndo専用。アプリ上にアルバム削除ボタンは存在せず、
+/// このコマンドもUndoスタックの内部処理からのみ呼び出される想定
+/// （db::delete_viewer_albumがsource='viewer'以外の削除をクエリレベルで拒否する）。
+#[tauri::command]
+pub fn delete_viewer_album_command(
+    state: State<ArchiveState>,
+    album_id: String,
+) -> Result<(), String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
+    db::delete_viewer_album(&conn, &album_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_photos_to_album_command(
+    state: State<ArchiveState>,
+    album_id: String,
+    photo_ids: Vec<String>,
+) -> Result<(), String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
+    db::add_photos_to_album(&conn, &album_id, &photo_ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_photo_from_album_command(
+    state: State<ArchiveState>,
+    album_id: String,
+    photo_id: String,
+) -> Result<(), String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
+    db::remove_photo_from_album(&conn, &album_id, &photo_id).map_err(|e| e.to_string())
+}
+
 /// archive_root配下のrelative_pathを解決する。`..`等でarchive_rootの外に
 /// 出ようとするパスは拒否する（フロントエンドから渡される文字列を信頼しない）。
 fn resolve_safe_path(archive_root: &Path, relative_path: &str) -> Result<PathBuf, String> {

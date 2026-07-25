@@ -8,6 +8,8 @@ interface PhotoGridProps {
   photos: Photo[];
   onSelect: (index: number) => void;
   photoVersions: Record<string, number>;
+  selectedPhotoIds: Set<string>;
+  onToggleSelect: (photoId: string) => void;
 }
 
 const TARGET_CELL_SIZE = 160;
@@ -19,6 +21,8 @@ interface CellProps {
   columnCount: number;
   onSelect: (index: number) => void;
   photoVersions: Record<string, number>;
+  selectedPhotoIds: Set<string>;
+  onToggleSelect: (photoId: string) => void;
 }
 
 function PhotoGridCell({
@@ -30,6 +34,8 @@ function PhotoGridCell({
   columnCount,
   onSelect,
   photoVersions,
+  selectedPhotoIds,
+  onToggleSelect,
 }: CellComponentProps<CellProps>) {
   const index = rowIndex * columnCount + columnIndex;
   const photo = photos[index];
@@ -44,12 +50,24 @@ function PhotoGridCell({
 
   return (
     <div style={style} {...ariaAttributes}>
-      <PhotoThumbnail key={`${photo.id}:${version}`} photo={photo} onClick={() => onSelect(index)} />
+      <PhotoThumbnail
+        key={`${photo.id}:${version}`}
+        photo={photo}
+        onClick={() => onSelect(index)}
+        selectedPhotoIds={selectedPhotoIds}
+        onToggleSelect={onToggleSelect}
+      />
     </div>
   );
 }
 
-export function PhotoGrid({ photos, onSelect, photoVersions }: PhotoGridProps) {
+export function PhotoGrid({
+  photos,
+  onSelect,
+  photoVersions,
+  selectedPhotoIds,
+  onToggleSelect,
+}: PhotoGridProps) {
   const [size, setSize] = useState({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
 
   if (photos.length === 0) {
@@ -65,7 +83,7 @@ export function PhotoGrid({ photos, onSelect, photoVersions }: PhotoGridProps) {
       className="photo-grid"
       aria-label="写真一覧"
       cellComponent={PhotoGridCell}
-      cellProps={{ photos, columnCount, onSelect, photoVersions }}
+      cellProps={{ photos, columnCount, onSelect, photoVersions, selectedPhotoIds, onToggleSelect }}
       columnCount={columnCount}
       columnWidth={columnWidth}
       rowCount={rowCount}

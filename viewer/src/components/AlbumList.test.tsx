@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { AlbumList } from "./AlbumList";
-import type { Album } from "../lib/types";
+import { PHOTO_IDS_MIME, encodePhotoIds } from "../lib/dnd";
+import type { Album, AlbumSelection } from "../lib/types";
 
 function makeAlbum(overrides: Partial<Album> = {}): Album {
   return {
@@ -16,48 +17,193 @@ function makeAlbum(overrides: Partial<Album> = {}): Album {
   };
 }
 
+function renderList(
+  overrides: Partial<{
+    albums: Album[];
+    unfiledCount: number;
+    selection: AlbumSelection;
+    onSelect: (selection: AlbumSelection) => void;
+    onCreateAlbum: (name: string) => void;
+    onRenameAlbum: (albumId: string, newName: string) => void;
+    onDropPhotos: (albumId: string, photoIds: string[]) => void;
+  }> = {}
+) {
+  const props = {
+    albums: [] as Album[],
+    unfiledCount: 0,
+    selection: { kind: "all" } as AlbumSelection,
+    onSelect: vi.fn(),
+    onCreateAlbum: vi.fn(),
+    onRenameAlbum: vi.fn(),
+    onDropPhotos: vi.fn(),
+    ...overrides,
+  };
+  render(<AlbumList {...props} />);
+  return props;
+}
+
 describe("AlbumList", () => {
   it("always renders a 'すべての写真' entry first", () => {
-    render(<AlbumList albums={[]} selectedAlbumId={null} onSelect={vi.fn()} />);
+    renderList();
 
     expect(screen.getByRole("button", { name: "すべての写真" })).toBeInTheDocument();
+  });
+
+  it("renders a '未分類' entry with the unfiled photo count", () => {
+    renderList({ unfiledCount: 2 });
+
+    const button = screen.getByRole("button", { name: /未分類/ });
+    expect(button).toHaveTextContent("2");
+  });
+
+  it("calls onSelect with the unfiled selection when '未分類' is clicked", async () => {
+    const user = userEvent.setup();
+    const { onSelect } = renderList();
+
+    await user.click(screen.getByRole("button", { name: /未分類/ }));
+
+    expect(onSelect).toHaveBeenCalledWith({ kind: "unfiled" });
   });
 
   it("renders each album's name and photo count", () => {
     const albums = [makeAlbum({ id: "alb1", name: "旅行", photoCount: 3 })];
 
-    render(<AlbumList albums={albums} selectedAlbumId={null} onSelect={vi.fn()} />);
+    renderList({ albums });
 
     expect(screen.getByText("旅行")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
-  it("calls onSelect with the album id when clicked", async () => {
+  it("calls onSelect with the album selection when an album is clicked", async () => {
     const user = userEvent.setup();
-    const onSelect = vi.fn();
     const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
+    const { onSelect } = renderList({ albums });
 
-    render(<AlbumList albums={albums} selectedAlbumId={null} onSelect={onSelect} />);
     await user.click(screen.getByText("旅行"));
 
-    expect(onSelect).toHaveBeenCalledWith("alb1");
+    expect(onSelect).toHaveBeenCalledWith({ kind: "album", albumId: "alb1" });
   });
 
-  it("calls onSelect with null when 'すべての写真' is clicked", async () => {
+  it("calls onSelect with the all selection when 'すべての写真' is clicked", async () => {
     const user = userEvent.setup();
-    const onSelect = vi.fn();
+    const { onSelect } = renderList({ selection: { kind: "album", albumId: "alb1" } });
 
-    render(<AlbumList albums={[]} selectedAlbumId="alb1" onSelect={onSelect} />);
     await user.click(screen.getByRole("button", { name: "すべての写真" }));
 
-    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledWith({ kind: "all" });
   });
 
   it("marks the selected album as active", () => {
     const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
 
-    render(<AlbumList albums={albums} selectedAlbumId="alb1" onSelect={vi.fn()} />);
+    renderList({ albums, selection: { kind: "album", albumId: "alb1" } });
 
     expect(screen.getByText("旅行").closest("button")).toHaveClass("album-list__item--active");
+  });
+
+  it("creates a new album via the inline input", async () => {
+    const user = userEvent.setup();
+    const { onCreateAlbum } = renderList();
+
+    await user.click(screen.getByRole("button", { name: "＋ 新しいアルバム" }));
+    await user.type(screen.getByPlaceholderText("アルバム名"), "夏休み{Enter}");
+
+    expect(onCreateAlbum).toHaveBeenCalledWith("夏休み");
+  });
+
+  it("does not create an album when the new-album input is left empty", async () => {
+    const user = userEvent.setup();
+    const { onCreateAlbum } = renderList();
+
+    await user.click(screen.getByRole("button", { name: "＋ 新しいアルバム" }));
+    await user.keyboard("{Enter}");
+
+    expect(onCreateAlbum).not.toHaveBeenCalled();
+  });
+
+  it("renames an album via double-click then Enter", async () => {
+    const user = userEvent.setup();
+    const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
+    const { onRenameAlbum } = renderList({ albums });
+
+    await user.dblClick(screen.getByText("旅行"));
+    const input = screen.getByDisplayValue("旅行");
+    await user.clear(input);
+    await user.type(input, "沖縄旅行{Enter}");
+
+    expect(onRenameAlbum).toHaveBeenCalledWith("alb1", "沖縄旅行");
+  });
+
+  it("cancels renaming on Escape without calling onRenameAlbum", async () => {
+    const user = userEvent.setup();
+    const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
+    const { onRenameAlbum } = renderList({ albums });
+
+    await user.dblClick(screen.getByText("旅行"));
+    const input = screen.getByDisplayValue("旅行");
+    await user.type(input, "変更中{Escape}");
+
+    expect(onRenameAlbum).not.toHaveBeenCalled();
+    expect(screen.getByText("旅行")).toBeInTheDocument();
+  });
+
+  it("highlights an album while a drag is over it and clears the highlight on drag leave", () => {
+    const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
+    renderList({ albums });
+
+    const albumItem = screen.getByText("旅行").closest("li");
+    if (!albumItem) {
+      throw new Error("album list item not found");
+    }
+
+    fireEvent.dragOver(albumItem);
+    expect(screen.getByText("旅行").closest("button")).toHaveClass("album-list__item--drag-over");
+
+    fireEvent.dragLeave(albumItem);
+    expect(screen.getByText("旅行").closest("button")).not.toHaveClass("album-list__item--drag-over");
+  });
+
+  it("commits a new album name on blur without pressing Enter", async () => {
+    const user = userEvent.setup();
+    const { onCreateAlbum } = renderList();
+
+    await user.click(screen.getByRole("button", { name: "＋ 新しいアルバム" }));
+    await user.type(screen.getByPlaceholderText("アルバム名"), "冬休み");
+    await user.click(document.body);
+
+    expect(onCreateAlbum).toHaveBeenCalledWith("冬休み");
+  });
+
+  it("commits a rename on blur without pressing Enter", async () => {
+    const user = userEvent.setup();
+    const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
+    const { onRenameAlbum } = renderList({ albums });
+
+    await user.dblClick(screen.getByText("旅行"));
+    const input = screen.getByDisplayValue("旅行");
+    await user.clear(input);
+    await user.type(input, "沖縄旅行");
+    await user.click(document.body);
+
+    expect(onRenameAlbum).toHaveBeenCalledWith("alb1", "沖縄旅行");
+  });
+
+  it("calls onDropPhotos with the dropped photo ids when photos are dropped on an album", () => {
+    const albums = [makeAlbum({ id: "alb1", name: "旅行" })];
+    const { onDropPhotos } = renderList({ albums });
+
+    const albumItem = screen.getByText("旅行").closest("li");
+    if (!albumItem) {
+      throw new Error("album list item not found");
+    }
+
+    const dataTransfer = {
+      getData: (type: string) => (type === PHOTO_IDS_MIME ? encodePhotoIds(["1", "2"]) : ""),
+    };
+    albumItem.dispatchEvent(
+      Object.assign(new Event("drop", { bubbles: true, cancelable: true }), { dataTransfer })
+    );
+
+    expect(onDropPhotos).toHaveBeenCalledWith("alb1", ["1", "2"]);
   });
 });

@@ -148,6 +148,108 @@ pub fn search_photos(conn: &Connection, query: &str) -> Result<Vec<Photo>, DbErr
     Ok(photos)
 }
 
+/// どのアルバムにも属さない写真の一覧。「すべての写真」から未分類を探すのは
+/// 人間の目視ではほぼ不可能というERGの指摘を受け、専用ビューとして追加した。
+pub fn list_unfiled_photos(conn: &Connection) -> Result<Vec<Photo>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, p.filename, p.filepath, p.media_type, p.date_taken, p.date_added, \
+         p.latitude, p.longitude, p.favorite, p.hidden, p.title, p.description, \
+         p.width, p.height, p.source \
+         FROM photos p \
+         LEFT JOIN album_photos ap ON ap.photo_id = p.id \
+         WHERE ap.photo_id IS NULL \
+         ORDER BY p.date_taken ASC",
+    )?;
+    let rows = stmt.query_map([], row_to_photo)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::from)
+}
+
+/// サイドバーに件数バッジを表示するための軽量カウント（一覧本体を取得せずに済む）。
+pub fn count_unfiled_photos(conn: &Connection) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM photos p \
+         LEFT JOIN album_photos ap ON ap.photo_id = p.id \
+         WHERE ap.photo_id IS NULL",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
+}
+
+/// ビュワー上で写真を分類するために手動作成するアルバム。Source A/B由来の
+/// インポート済みアルバムと区別するため source='viewer' を付与する。
+pub fn create_album(conn: &Connection, name: &str) -> Result<Album, DbError> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let created_at = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO albums (id, name, album_type, source, created_at) \
+         VALUES (?1, ?2, 'manual', 'viewer', ?3)",
+        rusqlite::params![id, name, created_at],
+    )?;
+    Ok(Album {
+        id,
+        name: name.to_string(),
+        album_type: "manual".to_string(),
+        source: "viewer".to_string(),
+        photo_count: 0,
+    })
+}
+
+pub fn rename_album(conn: &Connection, album_id: &str, new_name: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE albums SET name = ?1 WHERE id = ?2",
+        rusqlite::params![new_name, album_id],
+    )?;
+    Ok(())
+}
+
+/// アルバム新規作成のUndo専用。ERGの要望により、アプリ上にアルバム削除ボタンは
+/// 一切設けない（危険すぎるため）。ここは「直前に自分で作ったアルバムを取り消す」
+/// 操作のみに使うため、source='viewer'（ビュワー上で作成したもの）以外は
+/// 削除できないようクエリ自体で制限し、Source A/B由来のアルバムを誤って
+/// 消せないようにしている。
+pub fn delete_viewer_album(conn: &Connection, album_id: &str) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM album_photos \
+         WHERE album_id = ?1 \
+           AND EXISTS (SELECT 1 FROM albums WHERE id = ?1 AND source = 'viewer')",
+        [album_id],
+    )?;
+    conn.execute(
+        "DELETE FROM albums WHERE id = ?1 AND source = 'viewer'",
+        [album_id],
+    )?;
+    Ok(())
+}
+
+/// 複数写真をまとめてアルバムへ追加する（複数選択してのドラッグ&ドロップ用）。
+/// 既に追加済みの写真が含まれていてもエラーにしない（INSERT OR IGNORE）。
+pub fn add_photos_to_album(
+    conn: &Connection,
+    album_id: &str,
+    photo_ids: &[String],
+) -> Result<(), DbError> {
+    let mut stmt =
+        conn.prepare("INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)")?;
+    for photo_id in photo_ids {
+        stmt.execute(rusqlite::params![album_id, photo_id])?;
+    }
+    Ok(())
+}
+
+pub fn remove_photo_from_album(
+    conn: &Connection,
+    album_id: &str,
+    photo_id: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM album_photos WHERE album_id = ?1 AND photo_id = ?2",
+        rusqlite::params![album_id, photo_id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,5 +630,201 @@ mod tests {
         let photos = search_photos(&conn, "sunset").unwrap();
 
         assert_eq!(photos[0].album_names, Some(vec![]));
+    }
+
+    #[test]
+    fn list_unfiled_photos_returns_only_photos_with_no_album() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "b.jpg",
+            "2020-01-02T00:00:00",
+            false,
+            "source_a",
+        );
+        conn.execute(
+            "INSERT INTO albums (id, name, source) VALUES ('alb1', '旅行', 'source_a')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO album_photos (album_id, photo_id) VALUES ('alb1', '1')",
+            [],
+        )
+        .unwrap();
+
+        let photos = list_unfiled_photos(&conn).unwrap();
+
+        assert_eq!(photos.len(), 1);
+        assert_eq!(photos[0].id, "2");
+    }
+
+    #[test]
+    fn count_unfiled_photos_matches_list_unfiled_photos_length() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "b.jpg",
+            "2020-01-02T00:00:00",
+            false,
+            "source_a",
+        );
+        conn.execute(
+            "INSERT INTO albums (id, name, source) VALUES ('alb1', '旅行', 'source_a')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO album_photos (album_id, photo_id) VALUES ('alb1', '1')",
+            [],
+        )
+        .unwrap();
+
+        let count = count_unfiled_photos(&conn).unwrap();
+
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn create_album_inserts_a_manual_viewer_sourced_album() {
+        let conn = setup();
+
+        let album = create_album(&conn, "手動アルバム").unwrap();
+
+        assert_eq!(album.name, "手動アルバム");
+        assert_eq!(album.album_type, "manual");
+        assert_eq!(album.source, "viewer");
+        assert_eq!(album.photo_count, 0);
+
+        let albums = list_albums(&conn).unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].id, album.id);
+    }
+
+    #[test]
+    fn rename_album_updates_the_name() {
+        let conn = setup();
+        let album = create_album(&conn, "旧名").unwrap();
+
+        rename_album(&conn, &album.id, "新名").unwrap();
+
+        let albums = list_albums(&conn).unwrap();
+        assert_eq!(albums[0].name, "新名");
+    }
+
+    #[test]
+    fn delete_viewer_album_removes_a_manually_created_album() {
+        let conn = setup();
+        let album = create_album(&conn, "作りすぎた").unwrap();
+
+        delete_viewer_album(&conn, &album.id).unwrap();
+
+        let albums = list_albums(&conn).unwrap();
+        assert!(albums.is_empty());
+    }
+
+    #[test]
+    fn delete_viewer_album_does_not_delete_imported_albums() {
+        let conn = setup();
+        conn.execute(
+            "INSERT INTO albums (id, name, source) VALUES ('alb1', 'Source A由来', 'source_a')",
+            [],
+        )
+        .unwrap();
+
+        delete_viewer_album(&conn, "alb1").unwrap();
+
+        let albums = list_albums(&conn).unwrap();
+        assert_eq!(
+            albums.len(),
+            1,
+            "source='viewer'以外のアルバムは削除されない"
+        );
+    }
+
+    #[test]
+    fn add_photos_to_album_links_multiple_photos_at_once() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "b.jpg",
+            "2020-01-02T00:00:00",
+            false,
+            "source_a",
+        );
+        let album = create_album(&conn, "まとめて追加").unwrap();
+
+        add_photos_to_album(&conn, &album.id, &["1".to_string(), "2".to_string()]).unwrap();
+
+        let photos = list_album_photos(&conn, &album.id).unwrap();
+        assert_eq!(photos.len(), 2);
+    }
+
+    #[test]
+    fn add_photos_to_album_ignores_photos_already_in_the_album() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        let album = create_album(&conn, "重複追加").unwrap();
+        add_photos_to_album(&conn, &album.id, &["1".to_string()]).unwrap();
+
+        let result = add_photos_to_album(&conn, &album.id, &["1".to_string()]);
+
+        assert!(result.is_ok());
+        let photos = list_album_photos(&conn, &album.id).unwrap();
+        assert_eq!(photos.len(), 1);
+    }
+
+    #[test]
+    fn remove_photo_from_album_unlinks_the_photo() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        let album = create_album(&conn, "外す").unwrap();
+        add_photos_to_album(&conn, &album.id, &["1".to_string()]).unwrap();
+
+        remove_photo_from_album(&conn, &album.id, "1").unwrap();
+
+        let photos = list_album_photos(&conn, &album.id).unwrap();
+        assert!(photos.is_empty());
     }
 }

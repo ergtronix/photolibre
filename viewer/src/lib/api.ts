@@ -62,3 +62,35 @@ export async function getPhotoRotation(photoId: string): Promise<number> {
 export async function openPhotoFile(relativePath: string): Promise<void> {
   await invoke("open_photo_file", { relativePath });
 }
+
+/** どのアルバムにも属さない写真の一覧。「すべての写真」から未分類を探すのは
+ * 目視ではほぼ不可能というERGの指摘を受け、専用ビューとして追加した。 */
+export async function listUnfiledPhotos(): Promise<Photo[]> {
+  return invoke<Photo[]>("list_unfiled_photos_command");
+}
+
+export async function countUnfiledPhotos(): Promise<number> {
+  return invoke<number>("count_unfiled_photos_command");
+}
+
+export async function createAlbum(name: string): Promise<Album> {
+  return invoke<Album>("create_album_command", { name });
+}
+
+export async function renameAlbum(albumId: string, newName: string): Promise<void> {
+  await invoke("rename_album_command", { albumId, newName });
+}
+
+/** アルバム新規作成のUndo専用。アプリ上にアルバム削除ボタンは存在しない
+ * （危険すぎるためERGの要望により非搭載）。Undoスタックの内部処理からのみ呼ぶ。 */
+export async function deleteViewerAlbum(albumId: string): Promise<void> {
+  await invoke("delete_viewer_album_command", { albumId });
+}
+
+export async function addPhotosToAlbum(albumId: string, photoIds: string[]): Promise<void> {
+  await invoke("add_photos_to_album_command", { albumId, photoIds });
+}
+
+export async function removePhotoFromAlbum(albumId: string, photoId: string): Promise<void> {
+  await invoke("remove_photo_from_album_command", { albumId, photoId });
+}
