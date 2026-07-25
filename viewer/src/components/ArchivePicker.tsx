@@ -1,6 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
-
-import { setArchivePath } from "../lib/api";
+import { pickAndSetArchivePath } from "../lib/api";
 
 interface ArchivePickerProps {
   onSelected: (path: string) => void;
@@ -8,12 +6,10 @@ interface ArchivePickerProps {
 
 export function ArchivePicker({ onSelected }: ArchivePickerProps) {
   const handleClick = async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected !== "string") {
-      return;
+    const selected = await pickAndSetArchivePath();
+    if (selected) {
+      onSelected(selected);
     }
-    await setArchivePath(selected);
-    onSelected(selected);
   };
 
   return (

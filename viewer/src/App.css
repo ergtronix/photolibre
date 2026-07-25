@@ -62,6 +62,15 @@ button:hover {
   padding: 1rem 0;
 }
 
+.app__change-archive {
+  display: block;
+  width: calc(100% - 2rem);
+  margin: 0 1rem 1rem;
+  font-size: 0.8em;
+  color: #555;
+  text-align: center;
+}
+
 .app__main {
   display: flex;
   flex-direction: column;
@@ -327,6 +336,10 @@ button:hover {
 
   .app__sidebar {
     border-right-color: #3a3a3a;
+  }
+
+  .app__change-archive {
+    color: #ccc;
   }
 
   .app__toolbar {

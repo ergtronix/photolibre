@@ -7,6 +7,7 @@ import type { Album, Photo } from "./lib/types";
 
 const {
   getArchivePathMock,
+  pickAndSetArchivePathMock,
   listAlbumsMock,
   listPhotosMock,
   listAlbumPhotosMock,
@@ -17,6 +18,7 @@ const {
   setPhotoRotationMock,
 } = vi.hoisted(() => ({
   getArchivePathMock: vi.fn(),
+  pickAndSetArchivePathMock: vi.fn(),
   listAlbumsMock: vi.fn(),
   listPhotosMock: vi.fn(),
   listAlbumPhotosMock: vi.fn(),
@@ -29,6 +31,7 @@ const {
 
 vi.mock("./lib/api", () => ({
   getArchivePath: getArchivePathMock,
+  pickAndSetArchivePath: pickAndSetArchivePathMock,
   listAlbums: listAlbumsMock,
   listPhotos: listPhotosMock,
   listAlbumPhotos: listAlbumPhotosMock,
@@ -153,5 +156,40 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "a.jpg" }));
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("allows switching to a different archive folder once one is already configured", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([makePhoto({ id: "1" })]);
+    pickAndSetArchivePathMock.mockResolvedValue("E:/other-archive");
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("旅行")).toBeInTheDocument());
+
+    listAlbumsMock.mockResolvedValue([]);
+    listPhotosMock.mockResolvedValue([]);
+
+    await user.click(screen.getByRole("button", { name: "アーカイブフォルダを変更" }));
+
+    await waitFor(() => expect(pickAndSetArchivePathMock).toHaveBeenCalled());
+    await waitFor(() => expect(listAlbumsMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("does nothing when the archive-change dialog is cancelled", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([makePhoto({ id: "1" })]);
+    pickAndSetArchivePathMock.mockResolvedValue(null);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("旅行")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "アーカイブフォルダを変更" }));
+
+    await waitFor(() => expect(pickAndSetArchivePathMock).toHaveBeenCalled());
+    expect(listAlbumsMock).toHaveBeenCalledTimes(1);
   });
 });

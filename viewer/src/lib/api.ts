@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 import type { Album, Photo, PhotoFilter } from "./types";
 
@@ -8,6 +9,17 @@ export async function getArchivePath(): Promise<string | null> {
 
 export async function setArchivePath(path: string): Promise<void> {
   await invoke("set_archive_path", { path });
+}
+
+/** フォルダ選択ダイアログを開き、選択されたフォルダをアーカイブとして保存する。
+ * キャンセルされた場合はnullを返す。初回設定・変更どちらからも使う共通処理。 */
+export async function pickAndSetArchivePath(): Promise<string | null> {
+  const selected = await open({ directory: true, multiple: false });
+  if (typeof selected !== "string") {
+    return null;
+  }
+  await setArchivePath(selected);
+  return selected;
 }
 
 export async function listPhotos(filter: PhotoFilter): Promise<Photo[]> {

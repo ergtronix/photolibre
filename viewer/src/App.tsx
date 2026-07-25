@@ -6,7 +6,14 @@ import { FilterBar } from "./components/FilterBar";
 import { Lightbox } from "./components/Lightbox";
 import { PhotoGrid } from "./components/PhotoGrid";
 import { SearchBox } from "./components/SearchBox";
-import { getArchivePath, listAlbumPhotos, listAlbums, listPhotos, searchPhotos } from "./lib/api";
+import {
+  getArchivePath,
+  listAlbumPhotos,
+  listAlbums,
+  listPhotos,
+  pickAndSetArchivePath,
+  searchPhotos,
+} from "./lib/api";
 import { EMPTY_FILTER } from "./lib/types";
 import type { Album, Photo, PhotoFilter } from "./lib/types";
 import "./App.css";
@@ -75,9 +82,25 @@ export default function App() {
     return <ArchivePicker onSelected={setArchivePathState} />;
   }
 
+  const handleChangeArchive = async () => {
+    const selected = await pickAndSetArchivePath();
+    if (!selected) {
+      return;
+    }
+    setArchivePathState(selected);
+    setSelectedAlbumId(null);
+    setFilter(EMPTY_FILTER);
+    setSearchQuery(null);
+    setPhotoVersions({});
+    setLightboxIndex(null);
+  };
+
   return (
     <div className="app">
       <aside className="app__sidebar">
+        <button type="button" className="app__change-archive" onClick={handleChangeArchive}>
+          アーカイブフォルダを変更
+        </button>
         <AlbumList
           albums={albums}
           selectedAlbumId={selectedAlbumId}
