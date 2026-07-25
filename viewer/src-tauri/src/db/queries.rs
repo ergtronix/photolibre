@@ -885,4 +885,52 @@ mod tests {
 
         assert!(removed.is_empty());
     }
+
+    /// 結合テスト（TASK-054）: Rust側のテストは普段
+    /// `test_support::create_test_schema`（手書きの簡略スキーマ）を使っているが、
+    /// 本番のarchive.dbはPython側の`photolibre_importer.schema`が作成する。
+    /// 両者のスキーマ定義が食い違うと、単体テストが全て通っていても実機で
+    /// クエリが失敗しうる。このテストは実際にPythonのcreate_schema()で生成した
+    /// フィクスチャDB（tests/fixtures/sample_archive.db）を読み込み、公開クエリ
+    /// 関数が本番相当のスキーマに対しても正しく動作することを検証する。
+    #[test]
+    fn real_archive_db_produced_by_python_importer_is_readable_by_all_query_functions() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("sample_archive.db");
+        let conn =
+            Connection::open_with_flags(&fixture_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .expect("Pythonのcreate_schema()で生成したフィクスチャDBを開けること");
+
+        let photos = list_photos(&conn, &PhotoFilter::default())
+            .expect("本番相当のスキーマに対してlist_photosが成功すること");
+        assert_eq!(photos.len(), 2);
+
+        let albums = list_albums(&conn).expect("list_albumsが成功すること");
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].name, "夏休み2008");
+        assert_eq!(albums[0].photo_count, 1);
+
+        let album_photos =
+            list_album_photos(&conn, &albums[0].id).expect("list_album_photosが成功すること");
+        assert_eq!(album_photos.len(), 1);
+        assert_eq!(album_photos[0].filename, "DSC0001.JPG");
+
+        let unfiled = list_unfiled_photos(&conn).expect("list_unfiled_photosが成功すること");
+        assert_eq!(unfiled.len(), 1);
+        assert_eq!(unfiled[0].filename, "IMG_0002.jpg");
+
+        // ファイル名・タイトル・説明・アルバム名を横断する検索も本番スキーマで動作すること
+        let by_title = search_photos(&conn, "夏休みの海").expect("タイトルでの検索が成功すること");
+        assert_eq!(by_title.len(), 1);
+
+        let by_album_name =
+            search_photos(&conn, "夏休み2008").expect("アルバム名での検索が成功すること");
+        assert_eq!(by_album_name.len(), 1);
+        assert_eq!(
+            by_album_name[0].album_names,
+            Some(vec!["夏休み2008".to_string()])
+        );
+    }
 }
