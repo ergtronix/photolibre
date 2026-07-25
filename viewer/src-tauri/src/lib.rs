@@ -27,6 +27,7 @@ pub fn run() {
             commands::delete_viewer_album_command,
             commands::add_photos_to_album_command,
             commands::remove_photo_from_album_command,
+            commands::unfile_photos_command,
             commands::read_photo_data_url,
             commands::get_thumbnail_data_url,
             commands::get_photo_rotation,

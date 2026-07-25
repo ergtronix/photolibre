@@ -12,6 +12,9 @@ interface AlbumListProps {
   onCreateAlbum: (name: string) => void;
   onRenameAlbum: (albumId: string, newName: string) => void;
   onDropPhotos: (albumId: string, photoIds: string[]) => void;
+  /** 写真を未分類へ移動する（すべてのアルバムから外す）。入れ替え作業のため
+   * 一時的に未分類へ戻したいという要望により、"未分類"項目もドロップ対象にする。 */
+  onDropUnfiled: (photoIds: string[]) => void;
 }
 
 export function AlbumList({
@@ -22,11 +25,13 @@ export function AlbumList({
   onCreateAlbum,
   onRenameAlbum,
   onDropPhotos,
+  onDropUnfiled,
 }: AlbumListProps) {
   const [editingAlbumId, setEditingAlbumId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const skipEditBlur = useRef(false);
   const [dragOverAlbumId, setDragOverAlbumId] = useState<string | null>(null);
+  const [isUnfiledDragOver, setIsUnfiledDragOver] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const skipCreateBlur = useRef(false);
@@ -97,6 +102,15 @@ export function AlbumList({
     }
   };
 
+  const handleDropOnUnfiled = (event: React.DragEvent<HTMLLIElement>) => {
+    event.preventDefault();
+    setIsUnfiledDragOver(false);
+    const photoIds = decodePhotoIds(event.dataTransfer.getData(PHOTO_IDS_MIME));
+    if (photoIds.length > 0) {
+      onDropUnfiled(photoIds);
+    }
+  };
+
   return (
     <nav className="album-list" aria-label="アルバム一覧">
       <ul>
@@ -113,14 +127,23 @@ export function AlbumList({
             すべての写真
           </button>
         </li>
-        <li>
+        <li
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsUnfiledDragOver(true);
+          }}
+          onDragLeave={() => setIsUnfiledDragOver(false)}
+          onDrop={handleDropOnUnfiled}
+        >
           <button
             type="button"
-            className={
-              selection.kind === "unfiled"
-                ? "album-list__item album-list__item--active"
-                : "album-list__item"
-            }
+            className={[
+              "album-list__item",
+              selection.kind === "unfiled" ? "album-list__item--active" : "",
+              isUnfiledDragOver ? "album-list__item--drag-over" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             onClick={() => onSelect({ kind: "unfiled" })}
           >
             未分類

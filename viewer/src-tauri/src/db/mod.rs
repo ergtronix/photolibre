@@ -5,7 +5,7 @@ pub use models::{Album, Photo, PhotoFilter};
 pub use queries::{
     add_photos_to_album, count_unfiled_photos, create_album, delete_viewer_album,
     list_album_photos, list_albums, list_photos, list_unfiled_photos, remove_photo_from_album,
-    rename_album, search_photos,
+    rename_album, search_photos, unfile_photo,
 };
 
 use rusqlite::Connection;

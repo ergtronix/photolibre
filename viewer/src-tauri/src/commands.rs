@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -174,6 +175,25 @@ pub fn remove_photo_from_album_command(
     let archive_root = require_archive_path(&state)?;
     let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
     db::remove_photo_from_album(&conn, &album_id, &photo_id).map_err(|e| e.to_string())
+}
+
+/// 写真を未分類へ移動する（すべてのアルバムから外す）。入れ替え作業のため
+/// 一時的に未分類へ戻したいというERGの要望により追加。写真IDごとに、
+/// 外す前に属していたアルバムIDの一覧を返す（フロントエンドのUndoが
+/// 元のアルバムへ正確に戻せるようにするため）。
+#[tauri::command]
+pub fn unfile_photos_command(
+    state: State<ArchiveState>,
+    photo_ids: Vec<String>,
+) -> Result<HashMap<String, Vec<String>>, String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive_read_write(&archive_root).map_err(|e| e.to_string())?;
+    let mut previous_albums = HashMap::new();
+    for photo_id in photo_ids {
+        let album_ids = db::unfile_photo(&conn, &photo_id).map_err(|e| e.to_string())?;
+        previous_albums.insert(photo_id, album_ids);
+    }
+    Ok(previous_albums)
 }
 
 /// archive_root配下のrelative_pathを解決する。`..`等でarchive_rootの外に

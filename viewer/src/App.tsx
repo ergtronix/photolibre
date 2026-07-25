@@ -20,6 +20,7 @@ import {
   removePhotoFromAlbum,
   renameAlbum,
   searchPhotos,
+  unfilePhotos,
 } from "./lib/api";
 import { EMPTY_FILTER } from "./lib/types";
 import type { Album, AlbumSelection, Photo, PhotoFilter } from "./lib/types";
@@ -223,6 +224,28 @@ export default function App() {
     });
   };
 
+  const handleDropPhotosOnUnfiled = async (photoIds: string[]) => {
+    if (photoIds.length === 0) {
+      return;
+    }
+    const previousAlbumsByPhoto = await unfilePhotos(photoIds);
+    setSelectedPhotoIds(new Set());
+    await refreshSidebar();
+    await reloadCurrentPhotos();
+    undoStack.push({
+      label: "未分類への移動を取り消す",
+      undo: async () => {
+        await Promise.all(
+          Object.entries(previousAlbumsByPhoto).flatMap(([photoId, albumIds]) =>
+            albumIds.map((albumId) => addPhotosToAlbum(albumId, [photoId]))
+          )
+        );
+        await refreshSidebar();
+        await reloadCurrentPhotos();
+      },
+    });
+  };
+
   const handleRemoveSelectedFromAlbum = async () => {
     if (selection.kind !== "album" || selectedPhotoIds.size === 0) {
       return;
@@ -260,6 +283,7 @@ export default function App() {
           onCreateAlbum={handleCreateAlbum}
           onRenameAlbum={handleRenameAlbum}
           onDropPhotos={handleDropPhotosOnAlbum}
+          onDropUnfiled={handleDropPhotosOnUnfiled}
         />
       </aside>
 

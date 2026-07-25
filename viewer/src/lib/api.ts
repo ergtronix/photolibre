@@ -94,3 +94,10 @@ export async function addPhotosToAlbum(albumId: string, photoIds: string[]): Pro
 export async function removePhotoFromAlbum(albumId: string, photoId: string): Promise<void> {
   await invoke("remove_photo_from_album_command", { albumId, photoId });
 }
+
+/** 写真を未分類へ移動する（すべてのアルバムから外す）。入れ替え作業のため
+ * 一時的に未分類へ戻したいという要望により追加。戻り値は写真IDごとに
+ * 外す前に属していたアルバムIDの一覧（Undoで元のアルバムに戻すため）。 */
+export async function unfilePhotos(photoIds: string[]): Promise<Record<string, string[]>> {
+  return invoke<Record<string, string[]>>("unfile_photos_command", { photoIds });
+}

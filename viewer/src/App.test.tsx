@@ -19,6 +19,7 @@ const {
   deleteViewerAlbumMock,
   addPhotosToAlbumMock,
   removePhotoFromAlbumMock,
+  unfilePhotosMock,
   readPhotoDataUrlMock,
   getThumbnailDataUrlMock,
   getPhotoRotationMock,
@@ -37,6 +38,7 @@ const {
   deleteViewerAlbumMock: vi.fn(),
   addPhotosToAlbumMock: vi.fn(),
   removePhotoFromAlbumMock: vi.fn(),
+  unfilePhotosMock: vi.fn(),
   readPhotoDataUrlMock: vi.fn(),
   getThumbnailDataUrlMock: vi.fn(),
   getPhotoRotationMock: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock("./lib/api", () => ({
   deleteViewerAlbum: deleteViewerAlbumMock,
   addPhotosToAlbum: addPhotosToAlbumMock,
   removePhotoFromAlbum: removePhotoFromAlbumMock,
+  unfilePhotos: unfilePhotosMock,
   readPhotoDataUrl: readPhotoDataUrlMock,
   getThumbnailDataUrl: getThumbnailDataUrlMock,
   getPhotoRotation: getPhotoRotationMock,
@@ -112,6 +115,7 @@ beforeEach(() => {
   listAlbumPhotosMock.mockResolvedValue([]);
   addPhotosToAlbumMock.mockResolvedValue(undefined);
   removePhotoFromAlbumMock.mockResolvedValue(undefined);
+  unfilePhotosMock.mockResolvedValue({});
   renameAlbumMock.mockResolvedValue(undefined);
   deleteViewerAlbumMock.mockResolvedValue(undefined);
 });
@@ -299,6 +303,59 @@ describe("App", () => {
     );
 
     await waitFor(() => expect(addPhotosToAlbumMock).toHaveBeenCalledWith("alb1", ["1", "2"]));
+  });
+
+  it("moves dropped photos to unfiled (removes them from every album)", async () => {
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([]);
+    unfilePhotosMock.mockResolvedValue({ "1": ["alb1"] });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /未分類/ })).toBeInTheDocument());
+
+    const unfiledItem = screen.getByRole("button", { name: /未分類/ }).closest("li");
+    if (!unfiledItem) {
+      throw new Error("unfiled list item not found");
+    }
+    const dataTransfer = {
+      getData: (type: string) =>
+        type === "application/x-photolibre-photo-ids" ? JSON.stringify(["1"]) : "",
+    };
+    unfiledItem.dispatchEvent(
+      Object.assign(new Event("drop", { bubbles: true, cancelable: true }), { dataTransfer })
+    );
+
+    await waitFor(() => expect(unfilePhotosMock).toHaveBeenCalledWith(["1"]));
+  });
+
+  it("undoes moving photos to unfiled by re-adding them to their previous albums", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([]);
+    unfilePhotosMock.mockResolvedValue({ "1": ["alb1"] });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /未分類/ })).toBeInTheDocument());
+
+    const unfiledItem = screen.getByRole("button", { name: /未分類/ }).closest("li");
+    if (!unfiledItem) {
+      throw new Error("unfiled list item not found");
+    }
+    const dataTransfer = {
+      getData: (type: string) =>
+        type === "application/x-photolibre-photo-ids" ? JSON.stringify(["1"]) : "",
+    };
+    unfiledItem.dispatchEvent(
+      Object.assign(new Event("drop", { bubbles: true, cancelable: true }), { dataTransfer })
+    );
+    await waitFor(() => expect(unfilePhotosMock).toHaveBeenCalled());
+
+    await user.click(document.body);
+    await user.keyboard("{Control>}z{/Control}");
+
+    await waitFor(() => expect(addPhotosToAlbumMock).toHaveBeenCalledWith("alb1", ["1"]));
   });
 
   it("removes selected photos from the current album via the selection toolbar", async () => {

@@ -250,6 +250,20 @@ pub fn remove_photo_from_album(
     Ok(())
 }
 
+/// 写真をすべてのアルバムから外し、未分類に戻す。入れ替え作業のため
+/// 一時的に未分類へ移動したいというERGの要望により追加。Undoで元に戻せる
+/// よう、外す前に属していたアルバムIDの一覧を返す。
+pub fn unfile_photo(conn: &Connection, photo_id: &str) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare("SELECT album_id FROM album_photos WHERE photo_id = ?1")?;
+    let album_ids = stmt
+        .query_map([photo_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    conn.execute("DELETE FROM album_photos WHERE photo_id = ?1", [photo_id])?;
+
+    Ok(album_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -826,5 +840,49 @@ mod tests {
 
         let photos = list_album_photos(&conn, &album.id).unwrap();
         assert!(photos.is_empty());
+    }
+
+    #[test]
+    fn unfile_photo_removes_the_photo_from_every_album_and_returns_previous_album_ids() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        let album1 = create_album(&conn, "アルバム1").unwrap();
+        let album2 = create_album(&conn, "アルバム2").unwrap();
+        add_photos_to_album(&conn, &album1.id, &["1".to_string()]).unwrap();
+        add_photos_to_album(&conn, &album2.id, &["1".to_string()]).unwrap();
+
+        let mut removed = unfile_photo(&conn, "1").unwrap();
+        removed.sort();
+        let mut expected = vec![album1.id.clone(), album2.id.clone()];
+        expected.sort();
+        assert_eq!(removed, expected);
+
+        let unfiled = list_unfiled_photos(&conn).unwrap();
+        assert_eq!(unfiled.len(), 1);
+        assert_eq!(unfiled[0].id, "1");
+    }
+
+    #[test]
+    fn unfile_photo_returns_empty_when_the_photo_already_has_no_albums() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2020-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+
+        let removed = unfile_photo(&conn, "1").unwrap();
+
+        assert!(removed.is_empty());
     }
 }

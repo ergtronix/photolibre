@@ -26,6 +26,7 @@ function renderList(
     onCreateAlbum: (name: string) => void;
     onRenameAlbum: (albumId: string, newName: string) => void;
     onDropPhotos: (albumId: string, photoIds: string[]) => void;
+    onDropUnfiled: (photoIds: string[]) => void;
   }> = {}
 ) {
   const props = {
@@ -36,6 +37,7 @@ function renderList(
     onCreateAlbum: vi.fn(),
     onRenameAlbum: vi.fn(),
     onDropPhotos: vi.fn(),
+    onDropUnfiled: vi.fn(),
     ...overrides,
   };
   render(<AlbumList {...props} />);
@@ -205,5 +207,40 @@ describe("AlbumList", () => {
     );
 
     expect(onDropPhotos).toHaveBeenCalledWith("alb1", ["1", "2"]);
+  });
+
+  it("calls onDropUnfiled with the dropped photo ids when photos are dropped on '未分類'", () => {
+    const { onDropUnfiled } = renderList();
+
+    const unfiledItem = screen.getByRole("button", { name: /未分類/ }).closest("li");
+    if (!unfiledItem) {
+      throw new Error("unfiled list item not found");
+    }
+
+    const dataTransfer = {
+      getData: (type: string) => (type === PHOTO_IDS_MIME ? encodePhotoIds(["1"]) : ""),
+    };
+    unfiledItem.dispatchEvent(
+      Object.assign(new Event("drop", { bubbles: true, cancelable: true }), { dataTransfer })
+    );
+
+    expect(onDropUnfiled).toHaveBeenCalledWith(["1"]);
+  });
+
+  it("highlights '未分類' while a drag is over it and clears the highlight on drag leave", () => {
+    renderList();
+
+    const unfiledItem = screen.getByRole("button", { name: /未分類/ }).closest("li");
+    if (!unfiledItem) {
+      throw new Error("unfiled list item not found");
+    }
+
+    fireEvent.dragOver(unfiledItem);
+    expect(screen.getByRole("button", { name: /未分類/ })).toHaveClass("album-list__item--drag-over");
+
+    fireEvent.dragLeave(unfiledItem);
+    expect(screen.getByRole("button", { name: /未分類/ })).not.toHaveClass(
+      "album-list__item--drag-over"
+    );
   });
 });
