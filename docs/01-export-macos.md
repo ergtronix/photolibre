@@ -4,6 +4,8 @@ photolibreは、古いiMacに溜まったApple Photos（Photos.app）・iPhoto�
 
 対象: macOS Big Sur以前の古いiMacで、Photos.appおよび（お使いであれば）iPhotoに写真が入っている場合。
 
+以降のコマンドは、すべてmacOSの**「ターミナル」**アプリで実行します。「Launchpad」→「その他」→「ターミナル」、または画面右上の虫眼鏡アイコン（Spotlight検索）で「ターミナル」と検索して起動してください。
+
 ---
 
 ## 1-1. 準備: osxphotosのインストール
