@@ -86,7 +86,7 @@ Source A（Photos.app）3,556枚・Source B（iPhoto、1998〜2016年分含む�
 
 ## セットアップ・使い方
 
-1. [iMac（macOS）側: 写真ライブラリのエクスポート](docs/01-export-macos.md)
+1. [iMac（macOS）側: 写真ライブラリのエクスポート](docs/01-export-macos.md)（[Automatorアプリでダイアログ操作のみで実行可能](tools/macos-export/)）
 2. [Windows側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)
 
 ---
