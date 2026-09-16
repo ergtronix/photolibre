@@ -1,5 +1,10 @@
 mod commands;
 mod db;
+// TASK-380（C-1）: バックエンド基盤のみで、まだDB書き込み・Tauriコマンドの
+// どこからも呼ばれていないため一時的にdead_code警告を抑制する。
+// C-2/C-3でqueries.rs・コマンド層と接続した時点でこのattributeは外す。
+#[allow(dead_code)]
+mod import;
 mod mime;
 mod rotation;
 mod safe_id;
