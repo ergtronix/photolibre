@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{params_from_iter, Connection, Row};
 
@@ -424,6 +424,11 @@ pub fn commit_new_import_items(
 ) -> Result<ImportCommitSummary, ImportCommitError> {
     let mut duplicate_count = 0usize;
     let mut new_photos = Vec::new();
+    // `insert_local_import_photos`が失敗した場合のクリーンアップ用に、
+    // この回のバッチで実際に物理コピーした先の絶対パスも別途保持する
+    // （`NewPhoto.filepath`はarchive_root相対の文字列であり、削除には
+    // 使えないため）。
+    let mut copied_dests: Vec<PathBuf> = Vec::new();
 
     for item in items {
         match &item.dedup_status {
@@ -453,6 +458,7 @@ pub fn commit_new_import_items(
                     filesize,
                     sha256: item.sha256.clone(),
                 });
+                copied_dests.push(dest);
             }
             DedupStatus::DuplicateOfExisting { .. } | DedupStatus::DuplicateWithinBatch { .. } => {
                 duplicate_count += 1;
@@ -460,12 +466,32 @@ pub fn commit_new_import_items(
         }
     }
 
-    let inserted_photo_ids = insert_local_import_photos(conn, &new_photos)?;
-
-    Ok(ImportCommitSummary {
-        inserted_photo_ids,
-        duplicate_count,
-    })
+    match insert_local_import_photos(conn, &new_photos) {
+        Ok(inserted_photo_ids) => Ok(ImportCommitSummary {
+            inserted_photo_ids,
+            duplicate_count,
+        }),
+        Err(err) => {
+            // DBへのinsertが失敗した場合（ディスクフル・SQLITE_BUSY・電源断等）、
+            // この回のバッチで既に物理コピー済みだったファイルを
+            // ベストエフォートで削除する。放置すると「DBに記録されない
+            // 孤児ファイル」として残り、再試行時にsha256ベースの重複判定を
+            // すり抜けて同じファイルが衝突サフィックス付きで再コピーされ続ける
+            // （rust-reviewerレビュー指摘、TASK-381差し戻し）。
+            // 削除自体が失敗しても（権限不足等）ログ出力に留め、
+            // 元のDBエラーをそのまま呼び出し元へ返す。
+            for dest in &copied_dests {
+                if let Err(remove_err) = std::fs::remove_file(dest) {
+                    eprintln!(
+                        "commit_new_import_items: DB insert失敗後のクリーンアップで \
+                         {}の削除に失敗しました: {remove_err}",
+                        dest.display()
+                    );
+                }
+            }
+            Err(ImportCommitError::Db(err))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1493,5 +1519,103 @@ mod tests {
         // 既存のsource_a/source_b由来データが壊れず残っていることも確認する
         let all = list_photos(&conn, &PhotoFilter::default()).unwrap();
         assert_eq!(all.len(), 3, "フィクスチャの既存2件 + 今回追加した1件");
+    }
+
+    // -----------------------------------------------------------------
+    // TASK-381差し戻し（rust-reviewer HIGH指摘）:
+    // insert_local_import_photosの失敗時に、その回のバッチで既に物理コピー
+    // 済みだったファイルが「DBに記録されない孤児ファイル」として残らないこと、
+    // および失敗そのものは正しくロールバック・呼び出し元へ伝播することを検証する。
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn insert_local_import_photos_rolls_back_everything_when_one_row_violates_a_constraint() {
+        let mut conn = setup();
+        // 本番スキーマには無い制約だが、DB層の書き込み失敗全般に対して
+        // insert_local_import_photosが正しくロールバックすることを検証する
+        // ため、テスト側だけでsha256にUNIQUE制約を追加する。
+        conn.execute_batch("CREATE UNIQUE INDEX ux_photos_sha256_test ON photos(sha256);")
+            .unwrap();
+
+        let mut photos: Vec<NewPhoto> = (0..5)
+            .map(|i| sample_new_photo(&format!("img{i}.jpg"), &format!("hash-{i}")))
+            .collect();
+        // 4件目（index 3）を1件目と同じsha256にして、バッチ途中でUNIQUE制約
+        // 違反を起こす（0, 1, 2件目までは同じトランザクション内で成功する）。
+        photos[3].sha256 = photos[0].sha256.clone();
+
+        let result = insert_local_import_photos(&mut conn, &photos);
+
+        assert!(result.is_err(), "UNIQUE制約違反時はErrを返すこと");
+        let all = list_photos(&conn, &PhotoFilter::default()).unwrap();
+        assert!(
+            all.is_empty(),
+            "バッチ途中で1件でも失敗した場合、直前まで成功していた行も含めて \
+             1トランザクションとしてロールバックされ0件のままであること"
+        );
+    }
+
+    #[test]
+    fn commit_new_import_items_cleans_up_copied_files_when_db_insert_fails() {
+        use crate::import::PhotoMetadata;
+
+        let mut archive_conn = setup();
+        // insert_local_import_photosのDB insert失敗を確実に再現するため、
+        // テスト側だけでsha256にUNIQUE制約を追加する
+        // （物理コピーは正常に完了した後でDB側だけが失敗する状況を作る）。
+        archive_conn
+            .execute_batch("CREATE UNIQUE INDEX ux_photos_sha256_test ON photos(sha256);")
+            .unwrap();
+
+        let source_dir = tempfile::tempdir().unwrap();
+        let first = source_dir.path().join("first.jpg");
+        std::fs::write(&first, b"first file content").unwrap();
+        let second = source_dir.path().join("second.jpg");
+        std::fs::write(&second, b"second file, different content").unwrap();
+
+        // classify_batchを介さず、意図的に同一sha256を持つ2件の`New`項目を
+        // 直接構築する（実運用ではclassify_batchが同一sha256を重複として
+        // 弾くためあり得ない組み合わせだが、DB層のUNIQUE制約違反による
+        // insert失敗を確実に再現するため、ここでは直接構築する）。
+        let items = vec![
+            PendingImportItem {
+                source_path: first.clone(),
+                kind: MediaKind::Photo,
+                sha256: "forced-duplicate-hash".to_string(),
+                metadata: PhotoMetadata::default(),
+                dedup_status: DedupStatus::New,
+            },
+            PendingImportItem {
+                source_path: second.clone(),
+                kind: MediaKind::Photo,
+                sha256: "forced-duplicate-hash".to_string(),
+                metadata: PhotoMetadata::default(),
+                dedup_status: DedupStatus::New,
+            },
+        ];
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let result = commit_new_import_items(&mut archive_conn, archive_root.path(), &items);
+
+        assert!(
+            matches!(result, Err(ImportCommitError::Db(_))),
+            "DB insert失敗時はImportCommitError::Dbがそのまま返ること: {result:?}"
+        );
+
+        // コピー済みだった一時ファイルはベストエフォートで削除され、
+        // 「DBに記録されない孤児ファイル」として残っていないこと。
+        let remaining_files: Vec<_> = walkdir::WalkDir::new(archive_root.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .collect();
+        assert!(
+            remaining_files.is_empty(),
+            "DB insert失敗時、今回のバッチでコピー済みだったファイルは削除されていること: {remaining_files:?}"
+        );
+
+        // トランザクションがロールバックされ、DBには1件も残っていないこと
+        let all = list_photos(&archive_conn, &PhotoFilter::default()).unwrap();
+        assert!(all.is_empty(), "insert失敗時はDBに1件も残らないこと");
     }
 }
