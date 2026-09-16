@@ -15,7 +15,7 @@ Apple Photos/iPhotoの独自仕様から写真を解放し、オープンな形�
 | Phase 1: iMacからのエクスポート | ✅ 完了（osxphotosベースの手順を確立） |
 | Phase 2: インポーター（archive.db構築） | ✅ 完了（TDD・テストカバレッジ98%） |
 | Phase 2.5: 実データでの検証 | ✅ 完了（Source A 3,545件・Source B 2,990件、全件取り込み） |
-| Phase 3: 閲覧アプリ（Tauri + React） | ✅ 主要機能完成・実機動作確認済み |
+| Phase 3: 閲覧アプリ（Tauri + React） | ✅ 主要機能完成・実機動作確認済み・[Releases](https://github.com/ergtronix/photolibre/releases)からインストーラー（.exe/.msi）を配布 |
 | 結合テスト・セキュリティレビュー・ドキュメント整備・ライセンス選定 | ✅ 完了 |
 
 Source A（Photos.app）3,556枚・Source B（iPhoto、1998〜2016年分含む）2,990枚、合計6,535件の実データで動作検証済みです。
@@ -87,7 +87,18 @@ Source A（Photos.app）3,556枚・Source B（iPhoto、1998〜2016年分含む�
 ## セットアップ・使い方
 
 1. [iMac（macOS）側: 写真ライブラリのエクスポート](docs/01-export-macos.md)（[Automatorアプリでダイアログ操作のみで実行可能](tools/macos-export/)）
-2. [Windows側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)
+2. [Windows側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)（ビュワーアプリは[Releasesページ](https://github.com/ergtronix/photolibre/releases)からインストーラーをダウンロードするだけで導入できます）
+
+---
+
+## Windows SmartScreenの警告について
+
+配布しているインストーラー（`.exe`/`.msi`）は、コード署名証明書を取得していない無料OSSプロジェクトのため未署名です。そのため初回実行時にWindowsが「Windows によって PC が保護されました」という警告（SmartScreen）を表示することがあります。
+
+1. 警告画面の「詳細情報」をクリック
+2. 表示される「実行」ボタンをクリック
+
+一度実行すれば、以降は通常通りインストール・起動できます。
 
 ---
 

@@ -2,7 +2,7 @@
 
 macOS側でエクスポートした写真データ（[01-export-macos.md](01-export-macos.md)参照）を、Windows上でarchive.dbへ統合し、ビュワーアプリで閲覧します。
 
-前提: [Python 3.11+](https://www.python.org/downloads/) と [Node.js](https://nodejs.org/)・[Rust](https://www.rust-lang.org/tools/install) がインストール済みであること。
+前提: [Python 3.11+](https://www.python.org/downloads/)がインストール済みであること（インポーターの実行に必要です）。ビュワーアプリはインストーラーをダウンロードして実行するだけなので、Node.js・Rustのインストールは不要です（ソースからビルドしたい開発者向けの手順は、本ページ末尾の「開発者向け: ソースからビルドする」を参照してください）。
 
 以降のコマンドは、すべて**Windows PowerShell**で実行します。スタートメニューで「PowerShell」と検索して起動してください（「Windows Terminal」でも構いません。コマンドプロンプト(cmd.exe)ではありません）。
 
@@ -63,14 +63,34 @@ cd importer
 
 ## 2-5. ビュワーアプリの起動
 
-```powershell
-cd viewer
-npm install
-npm run tauri dev
-```
+1. [GitHub Releases](https://github.com/ergtronix/photolibre/releases)ページを開き、最新版のインストーラー（NSIS版の`.exe`、またはMSI版の`.msi`）をダウンロードします。
+2. ダウンロードしたファイルをダブルクリックして実行し、画面の指示に従ってインストールします。
+   - 初回実行時にWindows SmartScreenが警告を表示することがあります。未署名の無料OSSアプリであることによる既知の挙動です。対処法は[README.mdの「Windows SmartScreenの警告について」](../README.md#windows-smartscreenの警告について)を参照してください。
+3. インストール完了後、スタートメニューまたはデスクトップのショートカットからアプリ（「viewer」）を起動します。
 
 初回起動時に「フォルダを選択」画面が表示されるので、2-4で指定した`--archive-root`のフォルダ（例: `E:\PhotoArchive`）を選択してください。以降は自動的にこのフォルダが記憶され、次回起動時からはそのまま写真一覧が表示されます。
 
 別のアーカイブフォルダに切り替えたい場合は、アプリ左上の「アーカイブフォルダを変更」から再選択できます。
 
-> **補足:** 現時点ではWindows向けのインストーラー（.msi/.exe）は未整備で、`npm run tauri dev`による開発サーバー起動が導入方法になります。パッケージ化されたインストーラーの整備は今後の改善課題です。
+---
+
+## 開発者向け: ソースからビルドする
+
+エンドユーザーはインストーラーをダウンロードするだけで利用できます。以下はコントリビューター・開発者向けの、ソースからビルドする手順です。
+
+前提: [Node.js](https://nodejs.org/)・[Rust](https://www.rust-lang.org/tools/install)・MSVC Build Tools（Windows）がインストール済みであること。
+
+```powershell
+git clone https://github.com/ergtronix/photolibre.git
+cd photolibre/viewer
+npm install
+npm run tauri build
+```
+
+ビルドが成功すると、`viewer/src-tauri/target/release/bundle/`配下にインストーラーが生成されます（NSIS: `nsis/*.exe`、MSI: `msi/*.msi`）。
+
+インストーラーを都度ビルドせず、開発サーバーで素早く動作確認したい場合は以下も使えます。
+
+```powershell
+npm run tauri dev
+```
