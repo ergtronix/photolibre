@@ -1,7 +1,10 @@
+use std::path::Path;
+
 use rusqlite::{params_from_iter, Connection, Row};
 
-use super::models::{Album, Photo, PhotoFilter};
+use super::models::{Album, ImportCommitSummary, NewPhoto, Photo, PhotoFilter};
 use super::DbError;
+use crate::import::{DedupStatus, MediaKind, PendingImportItem};
 
 fn row_to_photo(row: &Row) -> rusqlite::Result<Photo> {
     Ok(Photo {
@@ -262,6 +265,207 @@ pub fn unfile_photo(conn: &Connection, photo_id: &str) -> Result<Vec<String>, Db
     conn.execute("DELETE FROM album_photos WHERE photo_id = ?1", [photo_id])?;
 
     Ok(album_ids)
+}
+
+// ---------------------------------------------------------------------------
+// ローカルフォルダ取り込み（TASK-053/TASK-381）用の書き込み関数群。
+// `photos.source`には既存の'source_a'/'source_b'（初回移行専用）・'viewer'
+// （ビュワー上の手動アルバム作成専用）とは別枠の新しい値'local_import'を使う。
+// ---------------------------------------------------------------------------
+
+/// ローカルフォルダ取り込みで確定した写真をarchive.dbへバルクinsertする。
+/// `photos.source`には新しい値`'local_import'`を使う
+/// （'source_a'/'source_b'は初回移行専用、'viewer'はビュワー上の手動アルバム
+/// 作成専用であり、それらとは意図的に別枠にしている）。
+/// 数百件規模になり得るため、1件ずつcommitせず`conn.transaction()`で
+/// 1トランザクションにまとめる。`id`はこの関数がUUIDv4で生成し、
+/// 渡した`photos`と同じ順序で返す（呼び出し側が`list_photos_by_ids`等で
+/// そのまま使えるように）。
+// C-3（TASK-382）でcommands.rsから呼ばれるまで本番コードから未使用のため、
+// 一時的にdead_code警告を抑制する（テストでは既に呼び出している）。
+#[allow(dead_code)]
+pub fn insert_local_import_photos(
+    conn: &mut Connection,
+    photos: &[NewPhoto],
+) -> Result<Vec<String>, DbError> {
+    let tx = conn.transaction()?;
+    // バッチ全体で同じタイムスタンプを使う（1回の取り込み操作として扱う）。
+    let imported_at = chrono::Utc::now().to_rfc3339();
+    let mut ids = Vec::with_capacity(photos.len());
+
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO photos (
+                id, filename, filepath, media_type, date_taken, date_added,
+                latitude, longitude, camera_make, camera_model, focal_length,
+                aperture, shutter_speed, iso, filesize, sha256, source, imported_at
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                'local_import', ?17
+             )",
+        )?;
+
+        for photo in photos {
+            let id = uuid::Uuid::new_v4().to_string();
+            stmt.execute(rusqlite::params![
+                id,
+                photo.filename,
+                photo.filepath,
+                photo.media_type,
+                photo.date_taken,
+                imported_at,
+                photo.latitude,
+                photo.longitude,
+                photo.camera_make,
+                photo.camera_model,
+                photo.focal_length,
+                photo.aperture,
+                photo.shutter_speed,
+                photo.iso,
+                photo.filesize,
+                photo.sha256,
+                imported_at,
+            ])?;
+            ids.push(id);
+        }
+    }
+
+    tx.commit()?;
+    Ok(ids)
+}
+
+/// idsで指定した写真だけを返す。取り込み直後に「今回取り込んだ写真だけを見る」
+/// 専用ビュー（フロントエンドの`ImportWizard`完了画面、C-4予定）で使う想定。
+/// 存在しないIDは無視する（エラーにしない）。空配列を渡した場合はSQLを発行せず
+/// 空配列を返す。
+#[allow(dead_code)]
+pub fn list_photos_by_ids(conn: &Connection, ids: &[String]) -> Result<Vec<Photo>, DbError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT p.id, p.filename, p.filepath, p.media_type, p.date_taken, p.date_added, \
+         p.latitude, p.longitude, p.favorite, p.hidden, p.title, p.description, \
+         p.width, p.height, p.source \
+         FROM photos p \
+         WHERE p.id IN ({placeholders}) \
+         ORDER BY p.date_taken ASC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(ids.iter()), row_to_photo)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::from)
+}
+
+/// `place_photo`が返す絶対パスを、archive_root相対・`/`区切りの文字列に変換する。
+/// Windows上では`PathBuf`が`\`区切りになるが、`photos.filepath`は既存の
+/// Source A/B由来データ（Python側で生成、`/`区切り）と同じ表記に揃えておく方が
+/// 一貫性がある（読み出し側の`archive_root.join(relative_path)`はどちらの
+/// 区切り文字でもWindows上で問題なく解決できるため、実害はないが表記を揃える）。
+#[allow(dead_code)]
+fn relative_filepath(archive_root: &Path, dest: &Path) -> String {
+    dest.strip_prefix(archive_root)
+        .unwrap_or(dest)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// `PhotoMetadata.date_taken`（"YYYY-MM-DD..."で始まる文字列。EXIF由来は
+/// タイムゾーン無しのローカル時刻表現、mtime由来はRFC3339）から
+/// `layout::place_photo`が要求する`(year, month)`を取り出す。
+/// パース不能な場合は`None`を返し、`photos/unknown/`配下に置かれるようにする。
+#[allow(dead_code)]
+fn year_month_from_date_taken(date_taken: &Option<String>) -> Option<(i32, u32)> {
+    let raw = date_taken.as_ref()?;
+    let year: i32 = raw.get(0..4)?.parse().ok()?;
+    let month: u32 = raw.get(5..7)?.parse().ok()?;
+    Some((year, month))
+}
+
+#[allow(dead_code)]
+fn media_type_for(kind: MediaKind) -> String {
+    match kind {
+        MediaKind::Photo => "photo".to_string(),
+        MediaKind::Video => "video".to_string(),
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, thiserror::Error)]
+pub enum ImportCommitError {
+    #[error("写真ファイルのコピーに失敗しました: {0}")]
+    Layout(#[from] crate::import::LayoutError),
+    #[error(transparent)]
+    Db(#[from] DbError),
+}
+
+/// TASK-380の`import`モジュールが判定した`PendingImportItem`一覧を受け取り、
+/// 実際にarchive.dbへ書き込む。
+///
+/// **`DedupStatus::New`の項目のみ**を`import::place_photo`でコピーし、
+/// `insert_local_import_photos`でDBへ挿入する。`DuplicateOfExisting`/
+/// `DuplicateWithinBatch`と判定済みの項目は、物理コピーもDB insertも
+/// 一切行わない — 単にスキップして`duplicate_count`に数えるだけ
+/// （TASK-380レビュー指摘: `PendingImportItem.dedup_status`が
+/// `place_photo`と型的に結び付いていなかったため、ここで明示的に
+/// 分岐させ、誤って重複ファイルまでコピー・insertしてしまう事故を防ぐ）。
+///
+/// 重複ファイルは`_duplicates/`へ退避しない。既存の`duplicates`テーブルも
+/// この経路では使わない（Source A/B初回移行専用の設計であり、コピー後も
+/// 元のSDカード/フォルダ側にファイルが残るローカル取り込みでは、
+/// 退避的な安全策自体が不要という判断）。
+#[allow(dead_code)]
+pub fn commit_new_import_items(
+    conn: &mut Connection,
+    archive_root: &Path,
+    items: &[PendingImportItem],
+) -> Result<ImportCommitSummary, ImportCommitError> {
+    let mut duplicate_count = 0usize;
+    let mut new_photos = Vec::new();
+
+    for item in items {
+        match &item.dedup_status {
+            DedupStatus::New => {
+                let date_taken_ym = year_month_from_date_taken(&item.metadata.date_taken);
+                let dest =
+                    crate::import::place_photo(&item.source_path, archive_root, date_taken_ym)?;
+                let filesize = std::fs::metadata(&dest).ok().map(|m| m.len() as i64);
+                let filename = dest
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                new_photos.push(NewPhoto {
+                    filename,
+                    filepath: relative_filepath(archive_root, &dest),
+                    media_type: media_type_for(item.kind),
+                    date_taken: item.metadata.date_taken.clone(),
+                    latitude: item.metadata.latitude,
+                    longitude: item.metadata.longitude,
+                    camera_make: item.metadata.camera_make.clone(),
+                    camera_model: item.metadata.camera_model.clone(),
+                    focal_length: item.metadata.focal_length,
+                    aperture: item.metadata.aperture,
+                    shutter_speed: item.metadata.shutter_speed.clone(),
+                    iso: item.metadata.iso,
+                    filesize,
+                    sha256: item.sha256.clone(),
+                });
+            }
+            DedupStatus::DuplicateOfExisting { .. } | DedupStatus::DuplicateWithinBatch { .. } => {
+                duplicate_count += 1;
+            }
+        }
+    }
+
+    let inserted_photo_ids = insert_local_import_photos(conn, &new_photos)?;
+
+    Ok(ImportCommitSummary {
+        inserted_photo_ids,
+        duplicate_count,
+    })
 }
 
 #[cfg(test)]
@@ -932,5 +1136,362 @@ mod tests {
             by_album_name[0].album_names,
             Some(vec!["夏休み2008".to_string()])
         );
+    }
+
+    // -----------------------------------------------------------------
+    // TASK-381（C-2: DB書き込み層）: ローカルフォルダ取り込みの書き込み関数群
+    // -----------------------------------------------------------------
+
+    fn sample_new_photo(filename: &str, sha256: &str) -> NewPhoto {
+        NewPhoto {
+            filename: filename.to_string(),
+            filepath: format!("photos/2024/01/{filename}"),
+            media_type: "photo".to_string(),
+            date_taken: Some("2024-01-15T10:00:00".to_string()),
+            latitude: Some(35.0),
+            longitude: Some(139.0),
+            camera_make: Some("Canon".to_string()),
+            camera_model: Some("EOS R5".to_string()),
+            focal_length: Some(50.0),
+            aperture: Some(2.8),
+            shutter_speed: Some("1/250".to_string()),
+            iso: Some(400),
+            filesize: Some(123_456),
+            sha256: sha256.to_string(),
+        }
+    }
+
+    #[test]
+    fn insert_local_import_photos_inserts_rows_marked_with_local_import_source() {
+        let mut conn = setup();
+
+        let ids =
+            insert_local_import_photos(&mut conn, &[sample_new_photo("a.jpg", "hash-a")]).unwrap();
+
+        assert_eq!(ids.len(), 1);
+        let photos = list_photos(&conn, &PhotoFilter::default()).unwrap();
+        assert_eq!(photos.len(), 1);
+        assert_eq!(photos[0].id, ids[0]);
+        assert_eq!(photos[0].source, "local_import");
+        assert_eq!(photos[0].filename, "a.jpg");
+    }
+
+    #[test]
+    fn insert_local_import_photos_returns_ids_in_the_same_order_as_input() {
+        let mut conn = setup();
+
+        let ids = insert_local_import_photos(
+            &mut conn,
+            &[
+                sample_new_photo("a.jpg", "hash-a"),
+                sample_new_photo("b.jpg", "hash-b"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1], "各行に別のUUIDが生成されること");
+        let photos = list_photos_by_ids(&conn, &ids).unwrap();
+        assert_eq!(photos.len(), 2);
+    }
+
+    #[test]
+    fn insert_local_import_photos_commits_all_rows_in_a_single_transaction() {
+        let mut conn = setup();
+        let photos: Vec<NewPhoto> = (0..5)
+            .map(|i| sample_new_photo(&format!("img{i}.jpg"), &format!("hash-{i}")))
+            .collect();
+
+        let ids = insert_local_import_photos(&mut conn, &photos).unwrap();
+
+        assert_eq!(ids.len(), 5);
+        let all = list_photos(&conn, &PhotoFilter::default()).unwrap();
+        assert_eq!(
+            all.len(),
+            5,
+            "1トランザクションで5件すべてがcommitされること"
+        );
+    }
+
+    #[test]
+    fn insert_local_import_photos_handles_empty_input_without_error() {
+        let mut conn = setup();
+
+        let ids = insert_local_import_photos(&mut conn, &[]).unwrap();
+
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn list_photos_by_ids_returns_only_requested_photos() {
+        let mut conn = setup();
+        let ids = insert_local_import_photos(
+            &mut conn,
+            &[
+                sample_new_photo("a.jpg", "hash-a"),
+                sample_new_photo("b.jpg", "hash-b"),
+                sample_new_photo("c.jpg", "hash-c"),
+            ],
+        )
+        .unwrap();
+
+        let photos = list_photos_by_ids(&conn, &[ids[0].clone(), ids[2].clone()]).unwrap();
+
+        assert_eq!(photos.len(), 2);
+        let filenames: Vec<&str> = photos.iter().map(|p| p.filename.as_str()).collect();
+        assert!(filenames.contains(&"a.jpg"));
+        assert!(filenames.contains(&"c.jpg"));
+        assert!(!filenames.contains(&"b.jpg"));
+    }
+
+    #[test]
+    fn list_photos_by_ids_returns_empty_for_empty_id_list() {
+        let conn = setup();
+
+        let photos = list_photos_by_ids(&conn, &[]).unwrap();
+
+        assert!(photos.is_empty());
+    }
+
+    #[test]
+    fn list_photos_by_ids_ignores_unknown_ids() {
+        let conn = setup();
+
+        let photos = list_photos_by_ids(&conn, &["does-not-exist".to_string()]).unwrap();
+
+        assert!(photos.is_empty());
+    }
+
+    /// TASK-380レビュー(rust-reviewer)からの申し送り事項に対応するテスト:
+    /// `PendingImportItem.dedup_status`が`DuplicateOfExisting`と判定された
+    /// 項目は、物理コピー(`place_photo`)もDB insertも一切行われず、単に
+    /// カウントされるだけであることを、実際の`import`モジュール（`hash_file`・
+    /// `load_known_hashes`・`classify_batch`）を使った一連の流れで検証する。
+    #[test]
+    fn commit_new_import_items_skips_duplicate_of_existing_photo_without_copying_or_inserting() {
+        use crate::import::{classify_batch, hash_file, load_known_hashes, read_metadata};
+
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        let new_file = source_dir.path().join("new.jpg");
+        std::fs::write(&new_file, b"brand new content").unwrap();
+        let dup_file = source_dir.path().join("dup.jpg");
+        std::fs::write(&dup_file, b"duplicate content").unwrap();
+
+        // archive.db(テストスキーマ)に、dup.jpgと全く同じ内容の写真が
+        // 既に取り込み済みであるという状況を用意する。
+        let dup_hash = hash_file(&dup_file).unwrap();
+        archive_conn
+            .execute(
+                "INSERT INTO photos (id, filename, filepath, media_type, source, sha256) \
+                 VALUES ('EXISTING-1', 'existing.jpg', 'existing.jpg', 'photo', 'source_a', ?1)",
+                rusqlite::params![dup_hash],
+            )
+            .unwrap();
+
+        let candidates = vec![
+            (new_file.clone(), hash_file(&new_file).unwrap()),
+            (dup_file.clone(), dup_hash.clone()),
+        ];
+        let known_hashes = load_known_hashes(&archive_conn).unwrap();
+        let classified = classify_batch(&candidates, &known_hashes);
+
+        let items: Vec<PendingImportItem> = classified
+            .into_iter()
+            .map(|(path, status)| PendingImportItem {
+                metadata: read_metadata(&path, MediaKind::Photo),
+                sha256: hash_file(&path).unwrap(),
+                source_path: path,
+                kind: MediaKind::Photo,
+                dedup_status: status,
+            })
+            .collect();
+
+        // 前提: classify_batchが期待通りNew/DuplicateOfExistingを判定していること
+        assert_eq!(items[0].dedup_status, DedupStatus::New);
+        assert_eq!(
+            items[1].dedup_status,
+            DedupStatus::DuplicateOfExisting {
+                photo_id: "EXISTING-1".to_string()
+            }
+        );
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let summary = commit_new_import_items(&mut archive_conn, archive_root.path(), &items)
+            .expect("New/DuplicateOfExistingが混在していても成功すること");
+
+        assert_eq!(
+            summary.inserted_photo_ids.len(),
+            1,
+            "新規1件のみinsertされること"
+        );
+        assert_eq!(
+            summary.duplicate_count, 1,
+            "重複1件はカウントのみでinsertされないこと"
+        );
+
+        // 重複ファイルは物理コピーされず、新規ファイルのみコピーされていること
+        let copied_files: Vec<_> = walkdir::WalkDir::new(archive_root.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .collect();
+        assert_eq!(
+            copied_files.len(),
+            1,
+            "重複と判定されたファイルは物理コピーされないこと"
+        );
+        assert!(copied_files[0]
+            .path()
+            .to_string_lossy()
+            .replace('\\', "/")
+            .ends_with("new.jpg"));
+
+        // 重複と判定された写真はDBにinsertされていないこと
+        let inserted = list_photos_by_ids(&archive_conn, &summary.inserted_photo_ids).unwrap();
+        assert_eq!(inserted.len(), 1);
+        assert_eq!(inserted[0].filename, "new.jpg");
+
+        let local_import_count = list_photos(&archive_conn, &PhotoFilter::default())
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.source == "local_import")
+            .count();
+        assert_eq!(
+            local_import_count, 1,
+            "既存のEXISTING-1(source_a相当)を除き、local_importでinsertされたのは新規1件のみ"
+        );
+    }
+
+    /// 同一バッチ内重複（`DuplicateWithinBatch`）についても、
+    /// `DuplicateOfExisting`と同様に物理コピー・insertが行われないことを検証する。
+    #[test]
+    fn commit_new_import_items_skips_duplicate_within_batch_without_copying_or_inserting() {
+        use crate::import::{classify_batch, hash_file, load_known_hashes, read_metadata};
+
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        let first = source_dir.path().join("first.jpg");
+        std::fs::write(&first, b"identical bytes in both files").unwrap();
+        let second = source_dir.path().join("second.jpg");
+        std::fs::write(&second, b"identical bytes in both files").unwrap();
+
+        let candidates = vec![
+            (first.clone(), hash_file(&first).unwrap()),
+            (second.clone(), hash_file(&second).unwrap()),
+        ];
+        let known_hashes = load_known_hashes(&archive_conn).unwrap();
+        let classified = classify_batch(&candidates, &known_hashes);
+
+        let items: Vec<PendingImportItem> = classified
+            .into_iter()
+            .map(|(path, status)| PendingImportItem {
+                metadata: read_metadata(&path, MediaKind::Photo),
+                sha256: hash_file(&path).unwrap(),
+                source_path: path,
+                kind: MediaKind::Photo,
+                dedup_status: status,
+            })
+            .collect();
+
+        assert_eq!(items[0].dedup_status, DedupStatus::New);
+        assert!(matches!(
+            items[1].dedup_status,
+            DedupStatus::DuplicateWithinBatch { .. }
+        ));
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let summary =
+            commit_new_import_items(&mut archive_conn, archive_root.path(), &items).unwrap();
+
+        assert_eq!(summary.inserted_photo_ids.len(), 1);
+        assert_eq!(summary.duplicate_count, 1);
+
+        let copied_files: Vec<_> = walkdir::WalkDir::new(archive_root.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .collect();
+        assert_eq!(
+            copied_files.len(),
+            1,
+            "バッチ内重複と判定されたファイルは物理コピーされないこと"
+        );
+    }
+
+    #[test]
+    fn commit_new_import_items_handles_all_duplicates_without_inserting_anything() {
+        use crate::import::PhotoMetadata;
+
+        let mut archive_conn = setup();
+        archive_conn
+            .execute(
+                "INSERT INTO photos (id, filename, filepath, media_type, source, sha256) \
+                 VALUES ('EXISTING-1', 'existing.jpg', 'existing.jpg', 'photo', 'local_import', 'hash-x')",
+                [],
+            )
+            .unwrap();
+
+        let items = vec![PendingImportItem {
+            source_path: std::path::PathBuf::from("D:/DCIM/dup.jpg"),
+            kind: MediaKind::Photo,
+            sha256: "hash-x".to_string(),
+            metadata: PhotoMetadata::default(),
+            dedup_status: DedupStatus::DuplicateOfExisting {
+                photo_id: "EXISTING-1".to_string(),
+            },
+        }];
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let summary =
+            commit_new_import_items(&mut archive_conn, archive_root.path(), &items).unwrap();
+
+        assert!(summary.inserted_photo_ids.is_empty());
+        assert_eq!(summary.duplicate_count, 1);
+        assert!(
+            !archive_root.path().join("photos").exists(),
+            "insert対象が無い場合、photosディレクトリ自体が作られないこと"
+        );
+    }
+
+    /// 完了条件: Python本番スキーマ（`importer/src/photolibre_importer/schema.py`）
+    /// とのフィールド不整合が無いことを、実際にPython側で生成した
+    /// `sample_archive.db`フィクスチャへの書き込みで確認する。
+    /// フィクスチャ自体は変更せず、一時コピーに対して書き込む。
+    #[test]
+    fn insert_local_import_photos_is_compatible_with_the_real_python_generated_schema() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("sample_archive.db");
+        let tmp = tempfile::tempdir().unwrap();
+        let db_copy = tmp.path().join("archive.db");
+        std::fs::copy(&fixture_path, &db_copy)
+            .expect("フィクスチャDBを一時コピーへ複製できること（元ファイルは変更しない）");
+
+        let mut conn =
+            Connection::open_with_flags(&db_copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .expect("複製したフィクスチャDBを読み書きモードで開けること");
+
+        let new_photo = sample_new_photo(
+            "local_import_test.jpg",
+            "brand-new-sha256-for-schema-compat-check",
+        );
+        let ids = insert_local_import_photos(&mut conn, &[new_photo]).expect(
+            "Rust側のINSERT文が、Python本番スキーマ(importer/schema.py)のphotosテーブルに \
+             対して列名・型の不整合なく成功すること",
+        );
+
+        assert_eq!(ids.len(), 1);
+
+        let inserted = list_photos_by_ids(&conn, &ids)
+            .expect("list_photos_by_idsも本番相当のスキーマに対して成功すること");
+        assert_eq!(inserted.len(), 1);
+        assert_eq!(inserted[0].filename, "local_import_test.jpg");
+        assert_eq!(inserted[0].source, "local_import");
+
+        // 既存のsource_a/source_b由来データが壊れず残っていることも確認する
+        let all = list_photos(&conn, &PhotoFilter::default()).unwrap();
+        assert_eq!(all.len(), 3, "フィクスチャの既存2件 + 今回追加した1件");
     }
 }

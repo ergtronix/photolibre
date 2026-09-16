@@ -8,6 +8,17 @@ pub use queries::{
     rename_album, search_photos, unfile_photo,
 };
 
+// TASK-381（C-2）: ローカルフォルダ取り込みのDB書き込み層。C-3（Tauriコマンド層、
+// TASK-382）でcommands.rsから呼ばれるまでの間、クレート内のどこからも
+// 使われないため一時的にunused_imports警告を抑制する
+// （import/mod.rsの`#![allow(unused_imports)]`と同じ理由・同じ方針）。
+#[allow(unused_imports)]
+pub use models::{ImportCommitSummary, NewPhoto};
+#[allow(unused_imports)]
+pub use queries::{
+    commit_new_import_items, insert_local_import_photos, list_photos_by_ids, ImportCommitError,
+};
+
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -61,7 +72,21 @@ pub(crate) mod test_support {
                 description TEXT,
                 width       INTEGER,
                 height      INTEGER,
-                source      TEXT NOT NULL
+                source      TEXT NOT NULL,
+                -- TASK-381向けに追加。本番スキーマ(importer/schema.py)ではNOT NULLだが、
+                -- 既存の大量のテストが`insert_photo`ヘルパー(これらの列を指定しない)を
+                -- 使っているため、この簡略スキーマではNULL許容のままにする
+                -- (本番スキーマとの厳密な整合性はsample_archive.dbフィクスチャを使う
+                -- 別の統合テストで確認する)。
+                camera_make    TEXT,
+                camera_model   TEXT,
+                focal_length   REAL,
+                aperture       REAL,
+                shutter_speed  TEXT,
+                iso            INTEGER,
+                filesize       INTEGER,
+                sha256         TEXT,
+                imported_at    TEXT
             );
 
             CREATE TABLE albums (
