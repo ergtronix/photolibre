@@ -1,9 +1,5 @@
 mod commands;
 mod db;
-// TASK-380（C-1）: バックエンド基盤のみで、まだDB書き込み・Tauriコマンドの
-// どこからも呼ばれていないため一時的にdead_code警告を抑制する。
-// C-2/C-3でqueries.rs・コマンド層と接続した時点でこのattributeは外す。
-#[allow(dead_code)]
 mod import;
 mod mime;
 mod rotation;
@@ -11,6 +7,7 @@ mod safe_id;
 mod thumbnail;
 
 use commands::ArchiveState;
+use import::ImportState;
 use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,6 +16,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(ArchiveState(Mutex::new(None)))
+        .manage(ImportState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             commands::set_archive_path,
             commands::get_archive_path,
@@ -39,6 +37,9 @@ pub fn run() {
             commands::get_photo_rotation,
             commands::set_photo_rotation,
             commands::open_photo_file,
+            commands::scan_import_source_command,
+            commands::commit_import_command,
+            commands::get_import_preview_thumbnail_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

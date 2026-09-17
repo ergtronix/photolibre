@@ -8,16 +8,25 @@ pub use queries::{
     rename_album, search_photos, unfile_photo,
 };
 
-// TASK-381（C-2）: ローカルフォルダ取り込みのDB書き込み層。C-3（Tauriコマンド層、
-// TASK-382）でcommands.rsから呼ばれるまでの間、クレート内のどこからも
-// 使われないため一時的にunused_imports警告を抑制する
-// （import/mod.rsの`#![allow(unused_imports)]`と同じ理由・同じ方針）。
+pub use models::ImportCommitSummary;
+// `NewPhoto`はqueries.rs内部でのみ構築される（commands.rsからは直接構築しない）ため、
+// このモジュール経由の再エクスポートとしては未使用のまま。
 #[allow(unused_imports)]
-pub use models::{ImportCommitSummary, NewPhoto};
+pub use models::NewPhoto;
+pub use queries::commit_new_import_items_with_progress;
+// `ImportCommitError`はcommands.rs側で型名を直接書かず`.map_err(|e| e.to_string())`
+// で文字列化するのみ（既存コマンドの規約通り）のため、この再エクスポート自体は
+// 名前としては未使用のまま（型自体は`Result`の一部として実際に使われている）。
 #[allow(unused_imports)]
-pub use queries::{
-    commit_new_import_items, insert_local_import_photos, list_photos_by_ids, ImportCommitError,
-};
+pub use queries::ImportCommitError;
+// `commit_new_import_items`（進捗通知なし版）・`insert_local_import_photos`・
+// `list_photos_by_ids`は、このモジュール経由では本番コード（commands.rs）から
+// 呼ばれず、テストからのみ利用されるため未使用のまま
+// （`commit_new_import_items`はテストの簡潔さのために残す薄いラッパー、
+// `insert_local_import_photos`は`commit_new_import_items_with_progress`が
+// 内部で直接呼ぶため、この再エクスポート自体は使われない）。
+#[allow(unused_imports)]
+pub use queries::{commit_new_import_items, insert_local_import_photos, list_photos_by_ids};
 
 use rusqlite::Connection;
 use std::path::Path;

@@ -1,13 +1,8 @@
 //! カメラ/スマホ取り込み機能（TASK-053）のバックエンド基盤モジュール群。
 //!
-//! この段階（C-1、TASK-380）では、DB書き込み・Tauriコマンド登録・
-//! フロントエンドUIには一切接続しない。各サブモジュールは`cargo test`で
-//! 単体検証できる独立したロジックとしてのみ実装する。次段階（C-2〜）で
-//! `db::queries`やTauriコマンド層と接続する。
-//!
-//! C-2/C-3でqueries.rs・コマンド層と接続するまでの間、pub use先が
-//! どこからも使われないため一時的にunused_imports警告を抑制する。
-#![allow(unused_imports)]
+//! C-3（TASK-382）でTauriコマンド層（`commands.rs`）・`db::queries`と接続済み。
+//! 各サブモジュールは引き続き`cargo test`で単体検証できる独立したロジックとして
+//! 実装している。
 
 mod dedup;
 mod hash;
@@ -16,9 +11,21 @@ mod metadata;
 mod scan;
 mod state;
 
-pub use dedup::{classify_batch, load_known_hashes, DedupError, DedupStatus};
-pub use hash::{hash_file, HashError};
-pub use layout::{build_destination, place_photo, LayoutError};
-pub use metadata::{read_metadata, DateSource, PhotoMetadata};
+pub use dedup::{classify_batch, load_known_hashes, DedupStatus};
+pub use hash::hash_file;
+pub use layout::{place_photo, LayoutError};
+pub use metadata::read_metadata;
 pub use scan::{scan_folder, MediaKind, ScannedFile};
 pub use state::{ImportState, PendingImport, PendingImportItem};
+
+// 以下は現時点でTauriコマンド層からは名前で直接参照されないが、`import`モジュールの
+// 公開APIとして意味のある型のため残す（将来のC-4フロントエンドUIやエラー詳細表示で
+// 使う可能性がある）。個別に`#[allow(unused_imports)]`を付けて警告のみ抑制する。
+#[allow(unused_imports)]
+pub use dedup::DedupError;
+#[allow(unused_imports)]
+pub use hash::HashError;
+#[allow(unused_imports)]
+pub use layout::build_destination;
+#[allow(unused_imports)]
+pub use metadata::{DateSource, PhotoMetadata};

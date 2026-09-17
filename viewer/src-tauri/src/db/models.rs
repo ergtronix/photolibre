@@ -51,9 +51,6 @@ pub struct PhotoFilter {
 /// `width`/`height`は現段階（C-2）では計算しない
 /// （`import::metadata`が画像サイズを読み取らないため）。将来`image`クレートで
 /// デコードして埋める改善はスコープ外として先送りする。
-// TASK-381（C-2）: C-3（Tauriコマンド層）まで本番コードから構築されないため、
-// 一時的にdead_code警告を抑制する（テスト内では既に構築・使用している）。
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewPhoto {
     pub filename: String,
@@ -74,7 +71,6 @@ pub struct NewPhoto {
 
 /// `commit_new_import_items`の結果サマリ。C-3（Tauriコマンド層）が
 /// `commit_import_command`のレスポンスを組み立てる際にそのまま利用する想定。
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ImportCommitSummary {
     /// 実際にコピー・insertされた写真のID一覧（insert順）。
@@ -83,4 +79,8 @@ pub struct ImportCommitSummary {
     /// スキップした重複件数（archive.db内の既存写真との重複／同一バッチ内
     /// 重複の合計）。`_duplicates/`への退避は行わないため、カウントのみ。
     pub duplicate_count: usize,
+    /// 個別コピー失敗（例: SDカード抜き差し・権限エラー等）でスキップした
+    /// ファイル名一覧。連続失敗で早期中断した場合も、それまでに失敗した分は
+    /// ここに含まれる（TASK-382完了条件）。
+    pub failed_files: Vec<String>,
 }

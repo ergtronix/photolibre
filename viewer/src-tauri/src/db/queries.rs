@@ -281,9 +281,6 @@ pub fn unfile_photo(conn: &Connection, photo_id: &str) -> Result<Vec<String>, Db
 /// 1トランザクションにまとめる。`id`はこの関数がUUIDv4で生成し、
 /// 渡した`photos`と同じ順序で返す（呼び出し側が`list_photos_by_ids`等で
 /// そのまま使えるように）。
-// C-3（TASK-382）でcommands.rsから呼ばれるまで本番コードから未使用のため、
-// 一時的にdead_code警告を抑制する（テストでは既に呼び出している）。
-#[allow(dead_code)]
 pub fn insert_local_import_photos(
     conn: &mut Connection,
     photos: &[NewPhoto],
@@ -364,7 +361,6 @@ pub fn list_photos_by_ids(conn: &Connection, ids: &[String]) -> Result<Vec<Photo
 /// Source A/B由来データ（Python側で生成、`/`区切り）と同じ表記に揃えておく方が
 /// 一貫性がある（読み出し側の`archive_root.join(relative_path)`はどちらの
 /// 区切り文字でもWindows上で問題なく解決できるため、実害はないが表記を揃える）。
-#[allow(dead_code)]
 fn relative_filepath(archive_root: &Path, dest: &Path) -> String {
     dest.strip_prefix(archive_root)
         .unwrap_or(dest)
@@ -376,7 +372,6 @@ fn relative_filepath(archive_root: &Path, dest: &Path) -> String {
 /// タイムゾーン無しのローカル時刻表現、mtime由来はRFC3339）から
 /// `layout::place_photo`が要求する`(year, month)`を取り出す。
 /// パース不能な場合は`None`を返し、`photos/unknown/`配下に置かれるようにする。
-#[allow(dead_code)]
 fn year_month_from_date_taken(date_taken: &Option<String>) -> Option<(i32, u32)> {
     let raw = date_taken.as_ref()?;
     let year: i32 = raw.get(0..4)?.parse().ok()?;
@@ -384,7 +379,6 @@ fn year_month_from_date_taken(date_taken: &Option<String>) -> Option<(i32, u32)>
     Some((year, month))
 }
 
-#[allow(dead_code)]
 fn media_type_for(kind: MediaKind) -> String {
     match kind {
         MediaKind::Photo => "photo".to_string(),
@@ -392,7 +386,13 @@ fn media_type_for(kind: MediaKind) -> String {
     }
 }
 
-#[allow(dead_code)]
+/// `commit_new_import_items_with_progress`が1件のコピー失敗をスキップして
+/// 続行する際の上限。この件数だけ**連続**でコピーに失敗した場合は、
+/// SDカードが抜けた・アクセス権限がない等、環境側の問題が起きている
+/// 可能性が高いと判断し、残りの項目の処理を早期中断する
+/// （TASK-382完了条件）。重複判定でスキップした項目はこのカウントに含めない。
+const MAX_CONSECUTIVE_COPY_FAILURES: usize = 3;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ImportCommitError {
     #[error("写真ファイルのコピーに失敗しました: {0}")]
@@ -416,12 +416,41 @@ pub enum ImportCommitError {
 /// この経路では使わない（Source A/B初回移行専用の設計であり、コピー後も
 /// 元のSDカード/フォルダ側にファイルが残るローカル取り込みでは、
 /// 退避的な安全策自体が不要という判断）。
+///
+/// 進捗通知が不要な呼び出し元（既存テスト等）向けの薄いラッパー。
+/// 実処理は`commit_new_import_items_with_progress`に委譲する
+/// （TASK-382でTauriコマンド層から進捗イベントを配信するために追加）。
 #[allow(dead_code)]
 pub fn commit_new_import_items(
     conn: &mut Connection,
     archive_root: &Path,
     items: &[PendingImportItem],
 ) -> Result<ImportCommitSummary, ImportCommitError> {
+    commit_new_import_items_with_progress(conn, archive_root, items, |_, _, _, _| {})
+}
+
+/// `commit_new_import_items`と同じ処理に加え、1件処理するごとに
+/// `on_progress(current, total, display_name, is_last)`を呼び出す
+/// （`current`/`total`は1始まりの件数、`is_last`はこの回の処理内で
+/// 最後に呼ばれる通知であることを示す。早期中断した場合もその時点で
+/// `is_last = true`になる。TASK-382: Tauriコマンド層の進捗イベント配信用）。
+///
+/// **1ファイル単位のコピー失敗はスキップして続行する**（失敗したファイル名は
+/// `ImportCommitSummary::failed_files`に積む）。ただし
+/// `MAX_CONSECUTIVE_COPY_FAILURES`件**連続**でコピーに失敗した場合は、
+/// 環境側の問題（SDカードが抜けた等）を疑い、残りの項目を処理せず早期中断する
+/// （TASK-382完了条件）。重複判定でスキップした項目は失敗としてカウントせず、
+/// 連続失敗カウンタにも影響しない。
+pub fn commit_new_import_items_with_progress<F>(
+    conn: &mut Connection,
+    archive_root: &Path,
+    items: &[PendingImportItem],
+    mut on_progress: F,
+) -> Result<ImportCommitSummary, ImportCommitError>
+where
+    F: FnMut(usize, usize, &str, bool),
+{
+    let total = items.len();
     let mut duplicate_count = 0usize;
     let mut new_photos = Vec::new();
     // `insert_local_import_photos`が失敗した場合のクリーンアップ用に、
@@ -429,40 +458,74 @@ pub fn commit_new_import_items(
     // （`NewPhoto.filepath`はarchive_root相対の文字列であり、削除には
     // 使えないため）。
     let mut copied_dests: Vec<PathBuf> = Vec::new();
+    let mut failed_files: Vec<String> = Vec::new();
+    let mut consecutive_failures = 0usize;
 
-    for item in items {
+    for (index, item) in items.iter().enumerate() {
+        let display_name = item
+            .source_path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| item.source_path.to_string_lossy().to_string());
+        let mut should_abort = false;
+
         match &item.dedup_status {
             DedupStatus::New => {
                 let date_taken_ym = year_month_from_date_taken(&item.metadata.date_taken);
-                let dest =
-                    crate::import::place_photo(&item.source_path, archive_root, date_taken_ym)?;
-                let filesize = std::fs::metadata(&dest).ok().map(|m| m.len() as i64);
-                let filename = dest
-                    .file_name()
-                    .map(|f| f.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                match crate::import::place_photo(&item.source_path, archive_root, date_taken_ym) {
+                    Ok(dest) => {
+                        consecutive_failures = 0;
+                        let filesize = std::fs::metadata(&dest).ok().map(|m| m.len() as i64);
+                        let filename = dest
+                            .file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_default();
 
-                new_photos.push(NewPhoto {
-                    filename,
-                    filepath: relative_filepath(archive_root, &dest),
-                    media_type: media_type_for(item.kind),
-                    date_taken: item.metadata.date_taken.clone(),
-                    latitude: item.metadata.latitude,
-                    longitude: item.metadata.longitude,
-                    camera_make: item.metadata.camera_make.clone(),
-                    camera_model: item.metadata.camera_model.clone(),
-                    focal_length: item.metadata.focal_length,
-                    aperture: item.metadata.aperture,
-                    shutter_speed: item.metadata.shutter_speed.clone(),
-                    iso: item.metadata.iso,
-                    filesize,
-                    sha256: item.sha256.clone(),
-                });
-                copied_dests.push(dest);
+                        new_photos.push(NewPhoto {
+                            filename,
+                            filepath: relative_filepath(archive_root, &dest),
+                            media_type: media_type_for(item.kind),
+                            date_taken: item.metadata.date_taken.clone(),
+                            latitude: item.metadata.latitude,
+                            longitude: item.metadata.longitude,
+                            camera_make: item.metadata.camera_make.clone(),
+                            camera_model: item.metadata.camera_model.clone(),
+                            focal_length: item.metadata.focal_length,
+                            aperture: item.metadata.aperture,
+                            shutter_speed: item.metadata.shutter_speed.clone(),
+                            iso: item.metadata.iso,
+                            filesize,
+                            sha256: item.sha256.clone(),
+                        });
+                        copied_dests.push(dest);
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "commit_new_import_items: {display_name}のコピーに失敗した\
+                             ためスキップします: {err}"
+                        );
+                        failed_files.push(display_name.clone());
+                        consecutive_failures += 1;
+                        if consecutive_failures >= MAX_CONSECUTIVE_COPY_FAILURES {
+                            eprintln!(
+                                "commit_new_import_items: 連続{consecutive_failures}件の\
+                                 コピー失敗のため、残りの項目を中断します"
+                            );
+                            should_abort = true;
+                        }
+                    }
+                }
             }
             DedupStatus::DuplicateOfExisting { .. } | DedupStatus::DuplicateWithinBatch { .. } => {
                 duplicate_count += 1;
             }
+        }
+
+        let is_last = should_abort || index + 1 == total;
+        on_progress(index + 1, total, &display_name, is_last);
+
+        if should_abort {
+            break;
         }
     }
 
@@ -470,6 +533,7 @@ pub fn commit_new_import_items(
         Ok(inserted_photo_ids) => Ok(ImportCommitSummary {
             inserted_photo_ids,
             duplicate_count,
+            failed_files,
         }),
         Err(err) => {
             // DBへのinsertが失敗した場合（ディスクフル・SQLITE_BUSY・電源断等）、
@@ -1617,5 +1681,193 @@ mod tests {
         // トランザクションがロールバックされ、DBには1件も残っていないこと
         let all = list_photos(&archive_conn, &PhotoFilter::default()).unwrap();
         assert!(all.is_empty(), "insert失敗時はDBに1件も残らないこと");
+    }
+
+    // -----------------------------------------------------------------
+    // TASK-382（C-3: Tauriコマンド層）: 1ファイル単位のコピー失敗はスキップして
+    // 続行し、連続失敗時は早期中断する（完了条件）。
+    // -----------------------------------------------------------------
+
+    fn new_item_with_missing_source(path: &Path, sha256: &str) -> PendingImportItem {
+        use crate::import::PhotoMetadata;
+        PendingImportItem {
+            source_path: path.to_path_buf(),
+            kind: MediaKind::Photo,
+            sha256: sha256.to_string(),
+            metadata: PhotoMetadata::default(),
+            dedup_status: DedupStatus::New,
+        }
+    }
+
+    fn new_item_for_existing_file(path: &Path, sha256: &str) -> PendingImportItem {
+        use crate::import::PhotoMetadata;
+        PendingImportItem {
+            source_path: path.to_path_buf(),
+            kind: MediaKind::Photo,
+            sha256: sha256.to_string(),
+            metadata: PhotoMetadata::default(),
+            dedup_status: DedupStatus::New,
+        }
+    }
+
+    #[test]
+    fn commit_new_import_items_skips_individual_copy_failure_and_continues() {
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        // 意図的に作成しない = place_photoがコピー元を読み込めず失敗する
+        let missing = source_dir.path().join("missing.jpg");
+        let existing = source_dir.path().join("existing.jpg");
+        std::fs::write(&existing, b"real content").unwrap();
+
+        let items = vec![
+            new_item_with_missing_source(&missing, "hash-missing"),
+            new_item_for_existing_file(&existing, "hash-existing"),
+        ];
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let summary = commit_new_import_items(&mut archive_conn, archive_root.path(), &items)
+            .expect("1件の失敗があっても全体としては成功すること");
+
+        assert_eq!(
+            summary.inserted_photo_ids.len(),
+            1,
+            "コピーに成功した1件はinsertされること"
+        );
+        assert_eq!(summary.failed_files, vec!["missing.jpg".to_string()]);
+        assert_eq!(summary.duplicate_count, 0);
+    }
+
+    #[test]
+    fn commit_new_import_items_aborts_after_consecutive_copy_failures() {
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        let missing_paths: Vec<_> = (0..3)
+            .map(|i| source_dir.path().join(format!("missing{i}.jpg")))
+            .collect();
+        let never_reached = source_dir.path().join("never_reached.jpg");
+        std::fs::write(&never_reached, b"should not be copied").unwrap();
+
+        let mut items: Vec<PendingImportItem> = missing_paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| new_item_with_missing_source(p, &format!("hash-missing-{i}")))
+            .collect();
+        items.push(new_item_for_existing_file(&never_reached, "hash-never"));
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let summary = commit_new_import_items(&mut archive_conn, archive_root.path(), &items)
+            .expect("連続失敗があっても中断するだけで全体はErrにしないこと");
+
+        assert_eq!(
+            summary.failed_files.len(),
+            3,
+            "3件連続失敗した時点で中断すること"
+        );
+        assert!(summary.inserted_photo_ids.is_empty());
+
+        let copied_files: Vec<_> = walkdir::WalkDir::new(archive_root.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .collect();
+        assert!(
+            copied_files.is_empty(),
+            "中断後の項目(never_reached.jpg)はコピーされないこと: {copied_files:?}"
+        );
+    }
+
+    #[test]
+    fn commit_new_import_items_does_not_abort_when_failures_are_not_consecutive() {
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        // 失敗・成功・失敗・成功・失敗 = 合計3件失敗するが連続しないため中断しない
+        let mut items = Vec::new();
+        for i in 0..3 {
+            let missing = source_dir.path().join(format!("missing{i}.jpg"));
+            items.push(new_item_with_missing_source(
+                &missing,
+                &format!("hash-missing-{i}"),
+            ));
+
+            let ok_path = source_dir.path().join(format!("ok{i}.jpg"));
+            std::fs::write(&ok_path, format!("content-{i}")).unwrap();
+            items.push(new_item_for_existing_file(
+                &ok_path,
+                &format!("hash-ok-{i}"),
+            ));
+        }
+
+        let archive_root = tempfile::tempdir().unwrap();
+        let summary =
+            commit_new_import_items(&mut archive_conn, archive_root.path(), &items).unwrap();
+
+        assert_eq!(summary.failed_files.len(), 3);
+        assert_eq!(
+            summary.inserted_photo_ids.len(),
+            3,
+            "失敗が連続しなければ中断せず残りも処理されること"
+        );
+    }
+
+    #[test]
+    fn commit_new_import_items_with_progress_reports_final_call_as_is_last_on_normal_completion() {
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        let a = source_dir.path().join("a.jpg");
+        std::fs::write(&a, b"a").unwrap();
+        let b = source_dir.path().join("b.jpg");
+        std::fs::write(&b, b"b").unwrap();
+        let items = vec![
+            new_item_for_existing_file(&a, "hash-a"),
+            new_item_for_existing_file(&b, "hash-b"),
+        ];
+        let archive_root = tempfile::tempdir().unwrap();
+
+        let mut calls: Vec<(usize, usize, bool)> = Vec::new();
+        commit_new_import_items_with_progress(
+            &mut archive_conn,
+            archive_root.path(),
+            &items,
+            |current, total, _name, is_last| {
+                calls.push((current, total, is_last));
+            },
+        )
+        .unwrap();
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0], (1, 2, false));
+        assert_eq!(calls[1], (2, 2, true));
+    }
+
+    #[test]
+    fn commit_new_import_items_with_progress_marks_is_last_true_when_aborted_early() {
+        let mut archive_conn = setup();
+        let source_dir = tempfile::tempdir().unwrap();
+        let missing_paths: Vec<_> = (0..3)
+            .map(|i| source_dir.path().join(format!("m{i}.jpg")))
+            .collect();
+        let items: Vec<PendingImportItem> = missing_paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| new_item_with_missing_source(p, &format!("h-{i}")))
+            .collect();
+        let archive_root = tempfile::tempdir().unwrap();
+
+        let mut calls: Vec<(usize, usize, bool)> = Vec::new();
+        commit_new_import_items_with_progress(
+            &mut archive_conn,
+            archive_root.path(),
+            &items,
+            |current, total, _name, is_last| {
+                calls.push((current, total, is_last));
+            },
+        )
+        .unwrap();
+
+        assert_eq!(calls.len(), 3, "3件目で中断するので3回呼ばれること");
+        assert!(
+            calls.last().unwrap().2,
+            "中断時も最後の呼び出しはis_last=trueであること"
+        );
     }
 }
