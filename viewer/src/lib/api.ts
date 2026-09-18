@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { Album, Photo, PhotoFilter } from "./types";
+import type { Album, ImportCommitResult, ImportPreview, Photo, PhotoFilter } from "./types";
 
 export async function getArchivePath(): Promise<string | null> {
   return invoke<string | null>("get_archive_path");
@@ -100,4 +100,43 @@ export async function removePhotoFromAlbum(albumId: string, photoId: string): Pr
  * 外す前に属していたアルバムIDの一覧（Undoで元のアルバムに戻すため）。 */
 export async function unfilePhotos(photoIds: string[]): Promise<Record<string, string[]>> {
   return invoke<Record<string, string[]>>("unfile_photos_command", { photoIds });
+}
+
+// --- デジカメ/SDカード取り込み機能（TASK-053、C-4: フロントエンドUI） ---
+
+/** 取り込み元フォルダの選択ダイアログを開く。`pickAndSetArchivePath`とは異なり
+ * `setArchivePath`は一切呼ばない別関数（取り込み元はアーカイブ本体とは無関係の
+ * 一時的な入力元のため）。キャンセルされた場合はnullを返す。 */
+export async function pickImportSourceFolder(): Promise<string | null> {
+  const selected = await open({ directory: true, multiple: false });
+  return typeof selected === "string" ? selected : null;
+}
+
+/** 選択したフォルダを走査し、ハッシュ計算・重複判定まで行う。書き込みは
+ * 一切行わない（プレビュー表示専用）。 */
+export async function scanImportSource(sourceFolder: string): Promise<ImportPreview> {
+  return invoke<ImportPreview>("scan_import_source_command", { sourceFolder });
+}
+
+/** プレビュー画面用に、元ファイル（まだアーカイブに属さない）から直接
+ * サムネイルを生成しdata URLとして返す。 */
+export async function getImportPreviewThumbnail(sourcePath: string): Promise<string> {
+  return invoke<string>("get_import_preview_thumbnail_command", { sourcePath });
+}
+
+/** プレビューで選択された項目のみを実際にコピー＋DB挿入する。
+ * `albumName`を指定すると、新規作成したアルバムに取り込んだ写真を追加する。 */
+export async function commitImport(
+  selectedSourcePaths: string[],
+  albumName: string | null
+): Promise<ImportCommitResult> {
+  return invoke<ImportCommitResult>("commit_import_command", {
+    selectedSourcePaths,
+    albumName,
+  });
+}
+
+/** 指定したIDの写真だけを一覧取得する。「取り込んだ写真を見る」ビュー専用。 */
+export async function listPhotosByIds(ids: string[]): Promise<Photo[]> {
+  return invoke<Photo[]>("list_photos_by_ids_command", { ids });
 }

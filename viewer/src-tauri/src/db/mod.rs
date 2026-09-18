@@ -4,8 +4,8 @@ mod queries;
 pub use models::{Album, Photo, PhotoFilter};
 pub use queries::{
     add_photos_to_album, count_unfiled_photos, create_album, delete_viewer_album,
-    list_album_photos, list_albums, list_photos, list_unfiled_photos, remove_photo_from_album,
-    rename_album, search_photos, unfile_photo,
+    list_album_photos, list_albums, list_photos, list_photos_by_ids, list_unfiled_photos,
+    remove_photo_from_album, rename_album, search_photos, unfile_photo,
 };
 
 pub use models::ImportCommitSummary;
@@ -19,14 +19,15 @@ pub use queries::commit_new_import_items_with_progress;
 // 名前としては未使用のまま（型自体は`Result`の一部として実際に使われている）。
 #[allow(unused_imports)]
 pub use queries::ImportCommitError;
-// `commit_new_import_items`（進捗通知なし版）・`insert_local_import_photos`・
-// `list_photos_by_ids`は、このモジュール経由では本番コード（commands.rs）から
-// 呼ばれず、テストからのみ利用されるため未使用のまま
-// （`commit_new_import_items`はテストの簡潔さのために残す薄いラッパー、
-// `insert_local_import_photos`は`commit_new_import_items_with_progress`が
-// 内部で直接呼ぶため、この再エクスポート自体は使われない）。
+// `commit_new_import_items`（進捗通知なし版）・`insert_local_import_photos`は、
+// このモジュール経由では本番コード（commands.rs）から呼ばれず、テストからのみ
+// 利用されるため未使用のまま（`commit_new_import_items`はテストの簡潔さのために
+// 残す薄いラッパー、`insert_local_import_photos`は`commit_new_import_items_with_progress`
+// が内部で直接呼ぶため、この再エクスポート自体は使われない）。
+// `list_photos_by_ids`はTASK-383（C-4）で`list_photos_by_ids_command`から
+// 実際に使われるようになったため、上の再エクスポートへ移動済み。
 #[allow(unused_imports)]
-pub use queries::{commit_new_import_items, insert_local_import_photos, list_photos_by_ids};
+pub use queries::{commit_new_import_items, insert_local_import_photos};
 
 use rusqlite::Connection;
 use std::path::Path;

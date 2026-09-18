@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlbumList } from "./components/AlbumList";
 import { ArchivePicker } from "./components/ArchivePicker";
 import { FilterBar } from "./components/FilterBar";
+import { ImportWizard } from "./components/ImportWizard";
 import { Lightbox } from "./components/Lightbox";
 import { PhotoGrid } from "./components/PhotoGrid";
 import { SearchBox } from "./components/SearchBox";
@@ -15,6 +16,7 @@ import {
   listAlbumPhotos,
   listAlbums,
   listPhotos,
+  listPhotosByIds,
   listUnfiledPhotos,
   pickAndSetArchivePath,
   removePhotoFromAlbum,
@@ -47,6 +49,7 @@ export default function App() {
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [photoVersions, setPhotoVersions] = useState<Record<string, number>>({});
+  const [showImportWizard, setShowImportWizard] = useState(false);
   const undoStack = useUndoStack();
 
   // Undoのやり直し処理は「今どのビューを見ているか」を常に最新の値で
@@ -97,6 +100,8 @@ export default function App() {
       listUnfiledPhotos().then(applyResult);
     } else if (selection.kind === "album") {
       listAlbumPhotos(selection.albumId).then(applyResult);
+    } else if (selection.kind === "importResult") {
+      listPhotosByIds(selection.photoIds).then(applyResult);
     } else {
       listPhotos(filter).then(applyResult);
     }
@@ -144,6 +149,8 @@ export default function App() {
       setPhotos(await listUnfiledPhotos());
     } else if (current.selection.kind === "album") {
       setPhotos(await listAlbumPhotos(current.selection.albumId));
+    } else if (current.selection.kind === "importResult") {
+      setPhotos(await listPhotosByIds(current.selection.photoIds));
     } else {
       setPhotos(await listPhotos(current.filter));
     }
@@ -246,6 +253,17 @@ export default function App() {
     });
   };
 
+  /** 取り込みウィザードの「取り込んだ写真を見る」で呼ばれる。取り込みは
+   * 既存のUndoスタックに接続しない（完了条件）ため、undoStack.pushは行わない。
+   * サイドバーには対応する項目を持たない一時的な"importResult"ビューへ遷移する。 */
+  const handleImportComplete = (photoIds: string[]) => {
+    setShowImportWizard(false);
+    setSelectedPhotoIds(new Set());
+    setSearchQuery(null);
+    setSelection({ kind: "importResult", photoIds });
+    void refreshSidebar();
+  };
+
   const handleRemoveSelectedFromAlbum = async () => {
     if (selection.kind !== "album" || selectedPhotoIds.size === 0) {
       return;
@@ -269,9 +287,18 @@ export default function App() {
   return (
     <div className="app">
       <aside className="app__sidebar">
-        <button type="button" className="app__change-archive" onClick={handleChangeArchive}>
-          アーカイブフォルダを変更
-        </button>
+        <div className="app__sidebar-actions">
+          <button type="button" className="app__change-archive" onClick={handleChangeArchive}>
+            アーカイブフォルダを変更
+          </button>
+          <button
+            type="button"
+            className="app__import-button"
+            onClick={() => setShowImportWizard(true)}
+          >
+            写真を取り込む
+          </button>
+        </div>
         <AlbumList
           albums={albums}
           unfiledCount={unfiledCount}
@@ -334,6 +361,14 @@ export default function App() {
               [photoId]: (versions[photoId] ?? 0) + 1,
             }))
           }
+        />
+      )}
+
+      {showImportWizard && (
+        <ImportWizard
+          albums={albums}
+          onClose={() => setShowImportWizard(false)}
+          onImportComplete={handleImportComplete}
         />
       )}
     </div>

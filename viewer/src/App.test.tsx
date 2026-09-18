@@ -24,6 +24,12 @@ const {
   getThumbnailDataUrlMock,
   getPhotoRotationMock,
   setPhotoRotationMock,
+  listPhotosByIdsMock,
+  pickImportSourceFolderMock,
+  scanImportSourceMock,
+  commitImportMock,
+  getImportPreviewThumbnailMock,
+  useImportProgressMock,
 } = vi.hoisted(() => ({
   getArchivePathMock: vi.fn(),
   pickAndSetArchivePathMock: vi.fn(),
@@ -43,6 +49,12 @@ const {
   getThumbnailDataUrlMock: vi.fn(),
   getPhotoRotationMock: vi.fn(),
   setPhotoRotationMock: vi.fn(),
+  listPhotosByIdsMock: vi.fn(),
+  pickImportSourceFolderMock: vi.fn(),
+  scanImportSourceMock: vi.fn(),
+  commitImportMock: vi.fn(),
+  getImportPreviewThumbnailMock: vi.fn(),
+  useImportProgressMock: vi.fn(),
 }));
 
 vi.mock("./lib/api", () => ({
@@ -65,6 +77,15 @@ vi.mock("./lib/api", () => ({
   getPhotoRotation: getPhotoRotationMock,
   setPhotoRotation: setPhotoRotationMock,
   setArchivePath: vi.fn(),
+  listPhotosByIds: listPhotosByIdsMock,
+  pickImportSourceFolder: pickImportSourceFolderMock,
+  scanImportSource: scanImportSourceMock,
+  commitImport: commitImportMock,
+  getImportPreviewThumbnail: getImportPreviewThumbnailMock,
+}));
+
+vi.mock("./lib/useImportProgress", () => ({
+  useImportProgress: useImportProgressMock,
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -118,6 +139,9 @@ beforeEach(() => {
   unfilePhotosMock.mockResolvedValue({});
   renameAlbumMock.mockResolvedValue(undefined);
   deleteViewerAlbumMock.mockResolvedValue(undefined);
+  listPhotosByIdsMock.mockResolvedValue([]);
+  getImportPreviewThumbnailMock.mockResolvedValue("data:image/jpeg;base64,AAAA");
+  useImportProgressMock.mockReturnValue({ progress: null, reset: vi.fn() });
 });
 
 describe("App", () => {
@@ -405,5 +429,65 @@ describe("App", () => {
     await user.keyboard("{Control>}z{/Control}");
 
     await waitFor(() => expect(deleteViewerAlbumMock).toHaveBeenCalledWith("new-alb"));
+  });
+
+  it("opens the import wizard from the sidebar", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([]);
+    listPhotosMock.mockResolvedValue([]);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "写真を取り込む" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "写真を取り込む" }));
+
+    expect(screen.getByRole("dialog", { name: "写真を取り込む" })).toBeInTheDocument();
+  });
+
+  it("switches to the imported-photos view once the import wizard completes", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([]);
+    listPhotosMock.mockResolvedValue([]);
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue({
+      newCount: 1,
+      duplicateCount: 0,
+      errorCount: 0,
+      items: [
+        {
+          sourcePath: "D:/DCIM/a.jpg",
+          filename: "a.jpg",
+          kind: "photo",
+          dedupStatus: { status: "new" },
+          dateTaken: null,
+        },
+      ],
+    });
+    commitImportMock.mockResolvedValue({
+      insertedCount: 1,
+      insertedPhotoIds: ["P-NEW-1"],
+      duplicateCount: 0,
+      failedFiles: [],
+    });
+    listPhotosByIdsMock.mockResolvedValue([makePhoto({ id: "P-NEW-1", filename: "imported.jpg" })]);
+
+    render(<App />);
+    await waitFor(() => expect(listPhotosMock).toHaveBeenCalled());
+
+    await user.click(screen.getByRole("button", { name: "写真を取り込む" }));
+    await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
+    await screen.findByRole("grid", { name: "取り込みプレビュー" });
+    await user.click(screen.getByRole("button", { name: /件を取り込む/ }));
+    await screen.findByText(/取り込みが完了しました/);
+
+    await user.click(screen.getByRole("button", { name: "取り込んだ写真を見る" }));
+
+    await waitFor(() => expect(listPhotosByIdsMock).toHaveBeenCalledWith(["P-NEW-1"]));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "imported.jpg" })).toBeInTheDocument()
+    );
+    expect(screen.queryByRole("dialog", { name: "写真を取り込む" })).not.toBeInTheDocument();
   });
 });

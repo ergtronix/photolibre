@@ -446,6 +446,9 @@ pub struct ImportPreview {
 #[serde(rename_all = "camelCase")]
 pub struct ImportCommitResult {
     pub inserted_count: usize,
+    /// 実際に挿入された写真のID一覧。フロントエンドの「取り込んだ写真を見る」が
+    /// `list_photos_by_ids_command`にそのまま渡す（TASK-383、C-4）。
+    pub inserted_photo_ids: Vec<String>,
     pub duplicate_count: usize,
     pub failed_files: Vec<String>,
 }
@@ -454,6 +457,7 @@ impl From<db::ImportCommitSummary> for ImportCommitResult {
     fn from(summary: db::ImportCommitSummary) -> Self {
         Self {
             inserted_count: summary.inserted_photo_ids.len(),
+            inserted_photo_ids: summary.inserted_photo_ids,
             duplicate_count: summary.duplicate_count,
             failed_files: summary.failed_files,
         }
@@ -789,6 +793,19 @@ pub async fn get_import_preview_thumbnail_command(
         .map_err(|e| e.to_string())?
 }
 
+/// 取り込み確定後、「取り込んだ写真を見る」ビュー用に、指定IDの写真だけを
+/// 一覧取得する（TASK-383、C-4）。`commit_import_command`が返す
+/// `insertedPhotoIds`をそのまま渡す想定。
+#[tauri::command]
+pub fn list_photos_by_ids_command(
+    state: State<ArchiveState>,
+    ids: Vec<String>,
+) -> Result<Vec<Photo>, String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive(&archive_root).map_err(|e| e.to_string())?;
+    db::list_photos_by_ids(&conn, &ids).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -888,6 +905,29 @@ mod tests {
                 first_seen_path: "a.jpg".to_string()
             }
         );
+    }
+
+    #[test]
+    fn import_commit_result_from_summary_carries_inserted_photo_ids() {
+        // TASK-383（C-4）: フロントエンドの「取り込んだ写真を見る」機能が
+        // `list_photos_by_ids_command`に渡すID一覧を必要とするため、
+        // `db::ImportCommitSummary`が既に持つ`inserted_photo_ids`を
+        // `ImportCommitResult`（フロントエンド向けDTO）にも引き継ぐ。
+        let summary = db::ImportCommitSummary {
+            inserted_photo_ids: vec!["P-1".to_string(), "P-2".to_string()],
+            duplicate_count: 1,
+            failed_files: vec!["broken.jpg".to_string()],
+        };
+
+        let result = ImportCommitResult::from(summary);
+
+        assert_eq!(result.inserted_count, 2);
+        assert_eq!(
+            result.inserted_photo_ids,
+            vec!["P-1".to_string(), "P-2".to_string()]
+        );
+        assert_eq!(result.duplicate_count, 1);
+        assert_eq!(result.failed_files, vec!["broken.jpg".to_string()]);
     }
 
     #[test]

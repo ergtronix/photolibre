@@ -40,6 +40,7 @@ pub fn run() {
             commands::scan_import_source_command,
             commands::commit_import_command,
             commands::get_import_preview_thumbnail_command,
+            commands::list_photos_by_ids_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

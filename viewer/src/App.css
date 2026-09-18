@@ -62,10 +62,16 @@ button:hover {
   padding: 1rem 0;
 }
 
-.app__change-archive {
-  display: block;
-  width: calc(100% - 2rem);
+.app__sidebar-actions {
+  display: flex;
+  gap: 0.5rem;
   margin: 0 1rem 1rem;
+}
+
+.app__change-archive,
+.app__import-button {
+  flex: 1;
+  min-width: 0;
   font-size: 0.8em;
   color: #555;
   text-align: center;
@@ -358,6 +364,226 @@ button:hover {
   transform: translateY(-50%);
 }
 
+/* --- 取り込みウィザード（デジカメ/SDカード取り込み機能） --- */
+
+.import-wizard-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.import-wizard {
+  width: min(90vw, 900px);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.import-wizard__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.import-wizard__header h2 {
+  margin: 0;
+  font-size: 1.1em;
+}
+
+.import-wizard__close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.import-wizard__step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.import-wizard__hint {
+  font-size: 0.85em;
+  color: #666;
+}
+
+.import-wizard__warning {
+  font-size: 0.85em;
+  color: #a15c00;
+  background: #fff6e5;
+  border: 1px solid #ffdfa3;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+}
+
+.import-wizard__error {
+  color: #b00020;
+  font-size: 0.9em;
+}
+
+.import-wizard__summary {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9em;
+  color: #444;
+}
+
+.import-wizard__summary-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.import-wizard__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.import-wizard__album-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.import-wizard__album-choice label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9em;
+}
+
+.import-progress-bar__track {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: #e0e0e0;
+  overflow: hidden;
+}
+
+.import-progress-bar__fill {
+  height: 100%;
+  background: #396cd8;
+  transition: width 150ms ease-out;
+}
+
+.import-progress-bar__label {
+  font-size: 0.8em;
+  color: #666;
+  margin: 0.35rem 0 0;
+}
+
+/* --- 取り込みプレビューグリッド --- */
+
+.import-preview-grid {
+  flex: 1;
+  min-height: 240px;
+}
+
+.import-preview-grid__empty {
+  padding: 2rem;
+  text-align: center;
+  color: #888;
+}
+
+.import-preview-thumbnail {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e0e0e0;
+  cursor: pointer;
+}
+
+.import-preview-thumbnail--selected {
+  outline: 3px solid #396cd8;
+  outline-offset: -3px;
+}
+
+.import-preview-thumbnail--duplicate {
+  opacity: 0.7;
+}
+
+.import-preview-thumbnail input[type="checkbox"] {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+}
+
+.import-preview-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.import-preview-thumbnail__loading,
+.import-preview-thumbnail__error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 0.75em;
+}
+
+.import-preview-thumbnail__video {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #2a2a2a;
+  color: #ccc;
+}
+
+.import-preview-thumbnail__filename {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 4px;
+  font-size: 0.7em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.import-preview-thumbnail__badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: #a15c00;
+  color: #fff;
+  font-size: 0.65em;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
@@ -376,7 +602,8 @@ button:hover {
     border-right-color: #3a3a3a;
   }
 
-  .app__change-archive {
+  .app__change-archive,
+  .app__import-button {
     color: #ccc;
   }
 
@@ -403,6 +630,26 @@ button:hover {
   }
 
   .photo-thumbnail--selected {
+    outline-color: #6b8cff;
+  }
+
+  .import-wizard {
+    background: #262626;
+  }
+
+  .import-wizard__hint {
+    color: #aaa;
+  }
+
+  .import-wizard__summary {
+    color: #ccc;
+  }
+
+  .import-wizard__album-choice {
+    border-color: #3a3a3a;
+  }
+
+  .import-preview-thumbnail--selected {
     outline-color: #6b8cff;
   }
 }
