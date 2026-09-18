@@ -466,6 +466,15 @@ button:hover {
   font-size: 0.9em;
 }
 
+/* ラジオボタンとテキスト入力/セレクトを兄弟要素として並べる（アクセシブルネームを
+   安定させるため、labelの中に別の入力をネストしない。react-reviewer指摘、
+   TASK-383レビュー対応）。 */
+.import-wizard__album-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .import-progress-bar__track {
   width: 100%;
   height: 8px;

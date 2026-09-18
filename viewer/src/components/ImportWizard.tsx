@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { ChangeEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { addPhotosToAlbum, commitImport, pickImportSourceFolder, scanImportSource } from "../lib/api";
 import type { Album, ImportCommitResult, ImportPreview } from "../lib/types";
@@ -18,6 +18,9 @@ interface ImportWizardProps {
 type WizardStep = "pick" | "scanning" | "preview" | "copying" | "done";
 type AlbumMode = "none" | "new" | "existing";
 
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -34,9 +37,18 @@ function getErrorMessage(error: unknown): string {
  * バックエンド側に専用の`aborted`フラグを追加する案もあったが、
  * `commit_import_command`は既にレビュー済みで、選択件数との差分だけで
  * フロントエンド側で判定できるため、この段階では差分計算方式を採用する
- * （判断の詳細はTASK-383.mdに記録）。 */
+ * （判断の詳細はTASK-383.mdに記録）。
+ * `accountedFor`が`selectedCount`を上回るのは本来あり得ない異常値だが、
+ * 万一発生した場合は0にクランプしつつ、原因調査のためコンソールに警告を残す
+ * （react-reviewer指摘、TASK-383レビュー対応）。 */
 function countInterrupted(selectedCount: number, result: ImportCommitResult): number {
   const accountedFor = result.insertedCount + result.duplicateCount + result.failedFiles.length;
+  if (accountedFor > selectedCount) {
+    console.warn(
+      `countInterrupted: 選択件数(${selectedCount})より説明できる件数(${accountedFor})の方が` +
+        "多くなっています。commit_import_commandの戻り値を確認してください。"
+    );
+  }
   return Math.max(0, selectedCount - accountedFor);
 }
 
@@ -53,19 +65,89 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
   const [albumWarning, setAlbumWarning] = useState<string | null>(null);
   const { progress, reset: resetProgress } = useImportProgress();
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const isMountedRef = useRef(true);
+
   const isBusy = step === "scanning" || step === "copying";
+
+  // アクセシビリティ: モーダルを開いたら呼び出し元でフォーカスされていた要素を
+  // 覚えておき、ダイアログ内へ初期フォーカスを移す。閉じた（アンマウントされた）
+  // ときは元の要素へフォーカスを戻す（react-reviewer指摘、TASK-383レビュー対応）。
+  useEffect(() => {
+    previouslyFocusedElementRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+
+    return () => {
+      previouslyFocusedElementRef.current?.focus();
+    };
+  }, []);
+
+  // Escapeキーで閉じる（既存Lightboxと同じ、windowにkeydownリスナーを張る
+  // パターンに倣う）。スキャン/コピー中は既存の閉じるボタン（disabled={isBusy}）
+  // と一貫させ、無効化する（react-reviewer指摘、TASK-383レビュー対応）。
+  useEffect(() => {
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isBusy) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown);
+  }, [isBusy, onClose]);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // アクセシビリティ: モーダル内にフォーカスを閉じ込める（Tabで最後の要素から
+  // 最初の要素へ、Shift+Tabで逆方向に循環させる）。react-reviewer指摘、
+  // TASK-383レビュー対応。
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") {
+      return;
+    }
+    const container = dialogRef.current;
+    if (!container) {
+      return;
+    }
+    const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    if (focusable.length === 0) {
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const isOutside = !container.contains(document.activeElement);
+
+    if (event.shiftKey) {
+      if (isOutside || document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (isOutside || document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const handlePickFolder = async () => {
     setErrorMessage(null);
-    const folder = await pickImportSourceFolder();
-    if (!folder) {
-      return;
-    }
-
-    setStep("scanning");
-    resetProgress();
     try {
+      const folder = await pickImportSourceFolder();
+      if (!folder) {
+        return;
+      }
+
+      setStep("scanning");
+      resetProgress();
       const result = await scanImportSource(folder);
+      if (!isMountedRef.current) {
+        return;
+      }
       setPreview(result);
       setSelectedPaths(
         new Set(
@@ -76,6 +158,9 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
       );
       setStep("preview");
     } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
       setErrorMessage(getErrorMessage(error));
       setStep("pick");
     }
@@ -108,18 +193,28 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
     try {
       const albumName = albumMode === "new" ? newAlbumName.trim() || null : null;
       const result = await commitImport(selected, albumName);
+      if (!isMountedRef.current) {
+        return;
+      }
       setCommitResult(result);
 
       if (albumMode === "existing" && existingAlbumId && result.insertedPhotoIds.length > 0) {
         try {
           await addPhotosToAlbum(existingAlbumId, result.insertedPhotoIds);
         } catch (error) {
-          setAlbumWarning(getErrorMessage(error));
+          if (isMountedRef.current) {
+            setAlbumWarning(getErrorMessage(error));
+          }
         }
       }
 
-      setStep("done");
+      if (isMountedRef.current) {
+        setStep("done");
+      }
     } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
       setErrorMessage(getErrorMessage(error));
       setStep("preview");
     }
@@ -136,10 +231,18 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
 
   return (
     <div className="import-wizard-overlay" role="presentation">
-      <div className="import-wizard" role="dialog" aria-modal="true" aria-label="写真を取り込む">
+      <div
+        ref={dialogRef}
+        className="import-wizard"
+        role="dialog"
+        aria-modal="true"
+        aria-label="写真を取り込む"
+        onKeyDown={handleDialogKeyDown}
+      >
         <div className="import-wizard__header">
           <h2>写真を取り込む</h2>
           <button
+            ref={closeButtonRef}
             type="button"
             className="import-wizard__close"
             aria-label="閉じる"
@@ -160,7 +263,11 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
               スマホの場合は、あらかじめWindowsのフォトアプリ/エクスプローラーで
               任意のフォルダにコピーしてから、そのフォルダを指定してください。
             </p>
-            {errorMessage && <p className="import-wizard__error">{errorMessage}</p>}
+            {errorMessage && (
+              <p className="import-wizard__error" role="alert">
+                {errorMessage}
+              </p>
+            )}
             <div className="import-wizard__actions">
               <button type="button" onClick={handlePickFolder}>
                 フォルダを選択
@@ -186,7 +293,7 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
               {preview.errorCount > 0 && <span>読み込みエラー: {preview.errorCount}件</span>}
             </div>
 
-            <p className="import-wizard__warning">
+            <p className="import-wizard__warning" role="status">
               取り込みを実行すると、選択した写真/動画がアーカイブへコピーされます。
               この操作は取り消せません（Ctrl+Zでの取り消しには対応していません）。
             </p>
@@ -208,33 +315,39 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
                 />
                 アルバムに追加しない
               </label>
-              <label>
-                <input
-                  type="radio"
-                  name="import-album-mode"
-                  checked={albumMode === "new"}
-                  onChange={() => setAlbumMode("new")}
-                />
-                新しいアルバムを作成:
+              <div className="import-wizard__album-option">
+                <label>
+                  <input
+                    type="radio"
+                    name="import-album-mode"
+                    checked={albumMode === "new"}
+                    onChange={() => setAlbumMode("new")}
+                  />
+                  新しいアルバムを作成
+                </label>
                 <input
                   type="text"
+                  aria-label="新しいアルバム名"
                   value={newAlbumName}
                   onChange={(event) => setNewAlbumName(event.target.value)}
                   onFocus={() => setAlbumMode("new")}
                   disabled={albumMode !== "new"}
                   placeholder="アルバム名"
                 />
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="import-album-mode"
-                  checked={albumMode === "existing"}
-                  onChange={() => setAlbumMode("existing")}
-                  disabled={albums.length === 0}
-                />
-                既存のアルバムに追加:
+              </div>
+              <div className="import-wizard__album-option">
+                <label>
+                  <input
+                    type="radio"
+                    name="import-album-mode"
+                    checked={albumMode === "existing"}
+                    onChange={() => setAlbumMode("existing")}
+                    disabled={albums.length === 0}
+                  />
+                  既存のアルバムに追加
+                </label>
                 <select
+                  aria-label="追加先の既存アルバム"
                   value={existingAlbumId}
                   onChange={handleExistingAlbumChange}
                   disabled={albumMode !== "existing"}
@@ -246,10 +359,14 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
                     </option>
                   ))}
                 </select>
-              </label>
+              </div>
             </fieldset>
 
-            {errorMessage && <p className="import-wizard__error">{errorMessage}</p>}
+            {errorMessage && (
+              <p className="import-wizard__error" role="alert">
+                {errorMessage}
+              </p>
+            )}
 
             <div className="import-wizard__actions">
               <button type="button" onClick={onClose}>
@@ -290,13 +407,17 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
               )}
             </ul>
             {interruptedCount > 0 && (
-              <p className="import-wizard__warning">
+              <p className="import-wizard__warning" role="status">
                 書き込みが連続して失敗したため、{interruptedCount}
                 件は処理されずに中断されました。アーカイブの保存先の空き容量などを
                 ご確認のうえ、必要であれば再度お試しください。
               </p>
             )}
-            {albumWarning && <p className="import-wizard__error">{albumWarning}</p>}
+            {albumWarning && (
+              <p className="import-wizard__error" role="alert">
+                {albumWarning}
+              </p>
+            )}
             <div className="import-wizard__actions">
               <button
                 type="button"
@@ -329,7 +450,7 @@ function ImportProgressBar({ current, total, label }: ImportProgressBarProps) {
       <div className="import-progress-bar__track">
         <div className="import-progress-bar__fill" style={{ width: `${percent}%` }} />
       </div>
-      <p className="import-progress-bar__label">
+      <p className="import-progress-bar__label" role="status">
         {current} / {total}（{label}）
       </p>
     </div>

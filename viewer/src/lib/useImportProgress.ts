@@ -20,13 +20,21 @@ export function useImportProgress() {
       if (mountedRef.current) {
         setProgress(event.payload);
       }
-    }).then((unlistenFn) => {
-      if (mountedRef.current) {
-        unlisten = unlistenFn;
-      } else {
-        unlistenFn();
-      }
-    });
+    })
+      .then((unlistenFn) => {
+        if (mountedRef.current) {
+          unlisten = unlistenFn;
+        } else {
+          unlistenFn();
+        }
+      })
+      .catch((error: unknown) => {
+        // `listen()`自体が失敗するのは稀（Tauriのイベントシステム自体が
+        // 利用不能な場合等）。進捗表示が出ないだけで機能自体は継続できるため、
+        // 未処理のPromise rejectionにしない（typescript-reviewer指摘、
+        // TASK-383レビュー対応）以外の追加対応はしない。
+        console.error("import-progressイベントの購読に失敗しました:", error);
+      });
 
     return () => {
       mountedRef.current = false;

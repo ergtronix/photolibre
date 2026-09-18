@@ -113,9 +113,12 @@ export default function App() {
 
   // Ctrl+Z（分類操作のUndo）。検索欄・アルバム名編集欄など、テキスト入力中は
   // ブラウザ標準のUndoに任せるため、編集可能要素にフォーカスがある間は無視する。
+  // 取り込みウィザード表示中も無効化する（取り込み操作は既存のUndoスタックには
+  // 接続しておらず、モーダル表示中にCtrl+Zが背後のビューへ作用するのは
+  // 紛らわしいため。react-reviewer指摘、TASK-383レビュー対応）。
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) {
+      if (showImportWizard || isEditableTarget(event.target)) {
         return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
@@ -125,7 +128,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undoStack.undo]);
+  }, [showImportWizard, undoStack.undo]);
 
   if (checkingArchive) {
     return <div className="app-loading">読み込み中...</div>;

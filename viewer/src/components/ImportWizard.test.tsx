@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImportWizard } from "./ImportWizard";
@@ -383,5 +384,208 @@ describe("ImportWizard", () => {
     await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
 
     expect(await screen.findByRole("button", { name: "閉じる" })).toBeDisabled();
+  });
+
+  it("shows an error (instead of getting stuck) when the folder picker itself fails", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockRejectedValue("フォルダ選択ダイアログを開けませんでした");
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
+
+    expect(await screen.findByText("フォルダ選択ダイアログを開けませんでした")).toBeInTheDocument();
+    expect(scanImportSourceMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "フォルダを選択" })).toBeInTheDocument();
+  });
+
+  it("moves initial focus into the dialog when it opens", async () => {
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "閉じる" })).toHaveFocus());
+  });
+
+  it("closes when Escape is pressed", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ImportWizard albums={[]} onClose={onClose} onImportComplete={vi.fn()} />);
+
+    await user.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not close on Escape while scanning is in progress", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockReturnValue(new Promise(() => {}));
+
+    render(<ImportWizard albums={[]} onClose={onClose} onImportComplete={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
+
+    await user.keyboard("{Escape}");
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("wraps focus from the last to the first focusable element when tabbing forward", () => {
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    const closeButton = screen.getByRole("button", { name: "閉じる" });
+    const pickButton = screen.getByRole("button", { name: "フォルダを選択" });
+    pickButton.focus();
+    expect(pickButton).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "写真を取り込む" }), { key: "Tab" });
+
+    expect(closeButton).toHaveFocus();
+  });
+
+  it("wraps focus from the first to the last focusable element when shift-tabbing backward", () => {
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    const closeButton = screen.getByRole("button", { name: "閉じる" });
+    const pickButton = screen.getByRole("button", { name: "フォルダを選択" });
+    closeButton.focus();
+    expect(closeButton).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "写真を取り込む" }), {
+      key: "Tab",
+      shiftKey: true,
+    });
+
+    expect(pickButton).toHaveFocus();
+  });
+
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return (
+      <div>
+        <button type="button" onClick={() => setOpen(true)}>
+          開く
+        </button>
+        {open && (
+          <ImportWizard albums={[]} onClose={() => setOpen(false)} onImportComplete={vi.fn()} />
+        )}
+      </div>
+    );
+  }
+
+  it("returns focus to the trigger element after closing", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "開く" }));
+    expect(await screen.findByRole("dialog", { name: "写真を取り込む" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "閉じる" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "開く" })).toHaveFocus());
+  });
+
+  it("marks error messages with role=alert so screen readers announce them", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockRejectedValue("アーカイブフォルダが設定されていません");
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "アーカイブフォルダが設定されていません"
+    );
+  });
+
+  it("marks progress text with role=status so screen readers announce it", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockReturnValue(new Promise(() => {}));
+    useImportProgressMock.mockReturnValue({
+      progress: { phase: "scanning", current: 4, total: 10, currentFile: "a.jpg" },
+      reset: vi.fn(),
+    });
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/4\s*\/\s*10/);
+  });
+
+  it("marks the undo warning with role=status", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+
+    expect(screen.getByRole("status")).toHaveTextContent(/取り消せません/);
+  });
+
+  it("shows an album warning when adding to the existing album fails after a successful commit", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+    commitImportMock.mockResolvedValue(makeCommitResult());
+    addPhotosToAlbumMock.mockRejectedValue("アルバムへの追加に失敗しました");
+    const albums: Album[] = [
+      { id: "alb1", name: "旅行", albumType: "manual", source: "viewer", photoCount: 2 },
+    ];
+
+    render(<ImportWizard albums={albums} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+    await user.click(screen.getByRole("radio", { name: "既存のアルバムに追加" }));
+    await user.selectOptions(screen.getByRole("combobox"), "alb1");
+    await user.click(screen.getByRole("button", { name: /件を取り込む/ }));
+
+    expect(await screen.findByText("アルバムへの追加に失敗しました")).toBeInTheDocument();
+    // 取り込み自体は成功しているので、完了サマリと「取り込んだ写真を見る」は表示されたまま。
+    expect(screen.getByText(/取り込みが完了しました/)).toBeInTheDocument();
+  });
+
+  it("re-disables the new-album name field when switching the radio back to 'no album'", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+
+    await user.click(screen.getByRole("radio", { name: /新しいアルバムを作成/ }));
+    expect(screen.getByLabelText("新しいアルバム名")).toBeEnabled();
+
+    await user.click(screen.getByRole("radio", { name: "アルバムに追加しない" }));
+
+    expect(screen.getByLabelText("新しいアルバム名")).toBeDisabled();
+  });
+
+  it("logs a warning when the reported commit counts exceed the number of selected items", async () => {
+    const user = userEvent.setup();
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+    // makePreview()の既定は1件選択に対し、insertedCountが5件と矛盾する異常値。
+    commitImportMock.mockResolvedValue(
+      makeCommitResult({ insertedCount: 5, insertedPhotoIds: ["P-1"], duplicateCount: 0, failedFiles: [] })
+    );
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+    await user.click(screen.getByRole("button", { name: /件を取り込む/ }));
+
+    await screen.findByText(/取り込みが完了しました/);
+    expect(consoleWarn).toHaveBeenCalled();
+    consoleWarn.mockRestore();
+  });
+
+  it("keeps the new-album radio's accessible name stable without the nested text input", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+
+    const radio = screen.getByRole("radio", { name: "新しいアルバムを作成" });
+    expect(radio).toBeInTheDocument();
+    expect(screen.getByLabelText("新しいアルバム名")).toBeInTheDocument();
   });
 });

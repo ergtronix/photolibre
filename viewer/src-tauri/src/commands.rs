@@ -381,10 +381,21 @@ impl ProgressThrottle {
     }
 }
 
+/// `phase`はTypeScript側`ImportProgressPhase`（`"scanning" | "copying"`の
+/// 閉じたリテラル型）と対応させる必要があるため、素の`String`ではなくenumにして
+/// コンパイル時に取り違えを検知できるようにする（typescript-reviewer指摘、
+/// TASK-383レビュー対応）。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ImportProgressPhase {
+    Scanning,
+    Copying,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ImportProgressPayload {
-    phase: String,
+    phase: ImportProgressPhase,
     current: usize,
     total: usize,
     current_file: String,
@@ -689,7 +700,7 @@ pub async fn scan_import_source_command(
                     let _ = app_for_progress.emit(
                         "import-progress",
                         ImportProgressPayload {
-                            phase: "scanning".to_string(),
+                            phase: ImportProgressPhase::Scanning,
                             current,
                             total,
                             current_file: path
@@ -745,7 +756,7 @@ pub async fn commit_import_command(
                         let _ = app_for_progress.emit(
                             "import-progress",
                             ImportProgressPayload {
-                                phase: "copying".to_string(),
+                                phase: ImportProgressPhase::Copying,
                                 current,
                                 total,
                                 current_file: filename.to_string(),
@@ -904,6 +915,22 @@ mod tests {
             DedupStatusDto::DuplicateWithinBatch {
                 first_seen_path: "a.jpg".to_string()
             }
+        );
+    }
+
+    #[test]
+    fn import_progress_phase_serializes_to_the_strings_the_frontend_expects() {
+        // TASK-383レビュー対応（typescript-reviewer指摘）: TypeScript側
+        // `ImportProgressPhase`は`"scanning" | "copying"`の閉じたリテラル型。
+        // Rust側もenumにしたことで、シリアライズ結果がその2値と一致することを
+        // テストで固定する。
+        assert_eq!(
+            serde_json::to_string(&ImportProgressPhase::Scanning).unwrap(),
+            "\"scanning\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ImportProgressPhase::Copying).unwrap(),
+            "\"copying\""
         );
     }
 

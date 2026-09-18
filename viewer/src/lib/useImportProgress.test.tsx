@@ -116,4 +116,19 @@ describe("useImportProgress", () => {
 
     expect(unlistenSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("does not throw or leave an unhandled rejection when listen() itself rejects", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    listenMock.mockRejectedValue(new Error("event system unavailable"));
+
+    const { result } = renderHook(() => useImportProgress());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.progress).toBeNull();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });

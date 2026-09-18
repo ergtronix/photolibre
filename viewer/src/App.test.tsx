@@ -445,6 +445,33 @@ describe("App", () => {
     expect(screen.getByRole("dialog", { name: "写真を取り込む" })).toBeInTheDocument();
   });
 
+  it("disables the global Ctrl+Z undo shortcut while the import wizard is open", async () => {
+    const user = userEvent.setup();
+    getArchivePathMock.mockResolvedValue("E:/archive");
+    listAlbumsMock.mockResolvedValue([makeAlbum({ id: "alb1", name: "旅行" })]);
+    listPhotosMock.mockResolvedValue([]);
+    createAlbumMock.mockResolvedValue({
+      id: "new-alb",
+      name: "夏休み",
+      albumType: "manual",
+      source: "viewer",
+      photoCount: 0,
+    });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "＋ 新しいアルバム" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "＋ 新しいアルバム" }));
+    await user.type(screen.getByPlaceholderText("アルバム名"), "夏休み{Enter}");
+    await waitFor(() => expect(createAlbumMock).toHaveBeenCalled());
+
+    await user.click(screen.getByRole("button", { name: "写真を取り込む" }));
+    expect(screen.getByRole("dialog", { name: "写真を取り込む" })).toBeInTheDocument();
+
+    await user.keyboard("{Control>}z{/Control}");
+
+    expect(deleteViewerAlbumMock).not.toHaveBeenCalled();
+  });
+
   it("switches to the imported-photos view once the import wizard completes", async () => {
     const user = userEvent.setup();
     getArchivePathMock.mockResolvedValue("E:/archive");
