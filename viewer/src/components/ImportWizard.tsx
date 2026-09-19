@@ -98,7 +98,17 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
     return () => window.removeEventListener("keydown", handleWindowKeyDown);
   }, [isBusy, onClose]);
 
+  // マウント判定フラグ。StrictMode（開発モード）は初回マウント時にeffectを
+  // 「実行→シミュレートされたクリーンアップ→再実行」の順で二重に走らせるため、
+  // クリーンアップでfalseにするだけでなく、effect本体の先頭で必ずtrueに
+  // 戻す必要がある（`useImportProgress.ts`の`mountedRef`と同じパターン）。
+  // これを怠ると、StrictMode下ではクリーンアップ後にtrueへ戻す機会がなく
+  // 永続的にfalseのままとなり、`handlePickFolder`/`handleCommit`内の
+  // `isMountedRef`ガードが常に発動してスキャン/コミット完了後の画面遷移が
+  // 一切起きなくなる重大なフリーズを引き起こす（ERG実機確認で発見、
+  // TASK-383レビュー対応）。
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };

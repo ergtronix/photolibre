@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImportWizard } from "./ImportWizard";
@@ -97,6 +97,28 @@ describe("ImportWizard", () => {
     scanImportSourceMock.mockResolvedValue(makePreview());
 
     render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
+
+    await waitFor(() => expect(scanImportSourceMock).toHaveBeenCalledWith("D:/DCIM"));
+    expect(await screen.findByRole("grid", { name: "取り込みプレビュー" })).toBeInTheDocument();
+  });
+
+  // 回帰テスト（ERG実機確認で発見・2026-09-19修正）: React.StrictMode（開発モード）
+  // は初回マウント時に各effectを「実行→シミュレートされたクリーンアップ→再実行」の
+  // 順で二重に走らせる。`isMountedRef`をクリーンアップでfalseにするだけでeffect本体で
+  // trueに戻していないと、二重実行後は永続的にfalseのままとなり、
+  // `handlePickFolder`/`handleCommit`の完了ガードが常に発動してスキャン/コミットが
+  // 完了してもUIが先に進まないフリーズになる。このテストは`wrapper: StrictMode`を
+  // 使うことで、修正前のコードに対しては実際に失敗する（"取り込みプレビュー"の
+  // grid要素が現れずscanningステップのまま固まる）ことを確認済み。
+  it("reaches the preview step after scanning completes even under React.StrictMode's double-invoked effects", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />, {
+      wrapper: StrictMode,
+    });
     await user.click(screen.getByRole("button", { name: "フォルダを選択" }));
 
     await waitFor(() => expect(scanImportSourceMock).toHaveBeenCalledWith("D:/DCIM"));
