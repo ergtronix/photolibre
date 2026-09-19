@@ -20,6 +20,9 @@ export function ImportPreviewThumbnail({
 }: ImportPreviewThumbnailProps) {
   const isVideo = item.kind === "video";
   const isDuplicate = item.dedupStatus.status !== "new";
+  // TASK-384（C-5）完了条件2: 撮影日時がEXIFから取得できず、ファイルのmtimeで
+  // 代用した推定値であることを視覚的に区別できるようにする。
+  const isEstimatedDate = item.dateSource === "estimated";
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -78,7 +81,19 @@ export function ImportPreviewThumbnail({
         <div className="import-preview-thumbnail__loading" />
       )}
       <span className="import-preview-thumbnail__filename">{item.filename}</span>
-      {isDuplicate && <span className="import-preview-thumbnail__badge">重複</span>}
+      {(isDuplicate || isEstimatedDate) && (
+        <span className="import-preview-thumbnail__badges">
+          {isDuplicate && <span className="import-preview-thumbnail__badge">重複</span>}
+          {isEstimatedDate && (
+            <span
+              className="import-preview-thumbnail__badge import-preview-thumbnail__badge--estimated"
+              title="EXIFに撮影日時が無いため、ファイルの更新日時から推定しています"
+            >
+              推定日時
+            </span>
+          )}
+        </span>
+      )}
     </label>
   );
 }

@@ -68,12 +68,28 @@ export type ImportDedupStatus =
   | { status: "duplicate_of_existing"; photoId: string }
   | { status: "duplicate_within_batch"; firstSeenPath: string };
 
+/** `dateTaken`がEXIFの実際の撮影日時（`"captured"`）か、ファイルのmtimeに
+ * よる推定（`"estimated"`）かを示す。動画は撮影日時を解析できないため
+ * 常に`"estimated"`になる（TASK-384、C-5完了条件2）。`?`はRust側`Option`が
+ * `null`にシリアライズされる既存テストフィクスチャとの互換のため。 */
+export type ImportDateSource = "captured" | "estimated";
+
 export interface ImportPreviewItem {
   sourcePath: string;
   filename: string;
   kind: ImportMediaKind;
   dedupStatus: ImportDedupStatus;
   dateTaken: string | null;
+  dateSource?: ImportDateSource | null;
+}
+
+/** 非対応形式（HEIC/RAW等）のため取り込み候補から除外されたファイル
+ * （TASK-384、C-5完了条件1）。 */
+export type ImportSkipReason = "unsupported_format";
+
+export interface ImportSkippedItem {
+  filename: string;
+  reason: ImportSkipReason;
 }
 
 export interface ImportPreview {
@@ -81,6 +97,10 @@ export interface ImportPreview {
   duplicateCount: number;
   errorCount: number;
   items: ImportPreviewItem[];
+  /** 非対応形式のためスキップされた件数。既存のテストフィクスチャ・
+   * モックとの互換のため任意（未指定時は0件として扱う）。 */
+  skippedCount?: number;
+  skippedItems?: ImportSkippedItem[];
 }
 
 export interface ImportCommitResult {

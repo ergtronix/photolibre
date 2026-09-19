@@ -173,6 +173,38 @@ describe("ImportWizard", () => {
     expect(screen.getByRole("checkbox", { name: "b.jpg" })).not.toBeChecked();
   });
 
+  // TASK-384（C-5）完了条件1: HEIC等のスキップ理由がプレビュー画面の
+  // サマリーに表示されること。
+  it("shows the skipped count in the preview summary when unsupported files were found", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(
+      makePreview({
+        skippedCount: 2,
+        skippedItems: [
+          { filename: "a.heic", reason: "unsupported_format" },
+          { filename: "b.heic", reason: "unsupported_format" },
+        ],
+      })
+    );
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+
+    expect(screen.getByText(/非対応形式のためスキップ: 2件/)).toBeInTheDocument();
+  });
+
+  it("does not show the skipped summary line when nothing was skipped", async () => {
+    const user = userEvent.setup();
+    pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");
+    scanImportSourceMock.mockResolvedValue(makePreview());
+
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+    await advanceToPreview(user);
+
+    expect(screen.queryByText(/非対応形式のためスキップ/)).not.toBeInTheDocument();
+  });
+
   it("shows a warning that the import cannot be undone", async () => {
     const user = userEvent.setup();
     pickImportSourceFolderMock.mockResolvedValue("D:/DCIM");

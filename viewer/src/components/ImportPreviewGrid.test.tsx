@@ -88,6 +88,28 @@ describe("ImportPreviewGrid", () => {
     expect(screen.getAllByText("重複")).toHaveLength(1);
   });
 
+  // TASK-384（C-5）完了条件2: 動画/EXIF無し写真のmtimeフォールバック
+  // （dateSource="estimated"）が、実際の撮影日時（"captured"）と
+  // 視覚的に区別可能な表示になっていることを確認する。
+  it("marks items with an estimated (mtime fallback) date with a distinct badge", () => {
+    const items = [
+      makeItem({ sourcePath: "a.jpg", filename: "a.jpg", dateSource: "captured" }),
+      makeItem({ sourcePath: "b.mov", filename: "b.mov", kind: "video", dateSource: "estimated" }),
+    ];
+
+    renderGrid({ items });
+
+    expect(screen.getAllByText("推定日時")).toHaveLength(1);
+  });
+
+  it("does not show the estimated-date badge when dateSource is missing (older fixtures)", () => {
+    const items = [makeItem({ sourcePath: "a.jpg", filename: "a.jpg", dateSource: undefined })];
+
+    renderGrid({ items });
+
+    expect(screen.queryByText("推定日時")).not.toBeInTheDocument();
+  });
+
   it("calls onToggleSelect with the item's source path when clicked", async () => {
     const user = userEvent.setup();
     const items = [makeItem({ sourcePath: "a.jpg", filename: "a.jpg" })];
