@@ -1456,6 +1456,17 @@ mod tests {
             find_item("clip.mp4").date_source,
             Some(import::DateSource::Estimated)
         );
+        // rust-reviewer指摘（TASK-384 C-5差し戻しM2）: 件数一致だけでは
+        // 「corrupted.jpgが誤って除外され、別要因で件数の辻褄が偶然合っている」
+        // ような回帰を検出できない。内容が壊れていても取り込み候補に
+        // 実際に含まれていること、EXIFが読めずmtimeへフォールバックしている
+        // ことを名前で明示的に確認する。
+        let corrupted_item = find_item("corrupted.jpg");
+        assert_eq!(corrupted_item.dedup_status, DedupStatusDto::New);
+        assert_eq!(
+            corrupted_item.date_source,
+            Some(import::DateSource::Estimated)
+        );
 
         // --- コミット ---
         let selected_paths: Vec<String> = preview

@@ -301,7 +301,7 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
               <span>新規: {preview.newCount}件</span>
               <span>重複: {preview.duplicateCount}件</span>
               {preview.errorCount > 0 && <span>読み込みエラー: {preview.errorCount}件</span>}
-              {(preview.skippedCount ?? 0) > 0 && (
+              {preview.skippedCount > 0 && (
                 <span>非対応形式のためスキップ: {preview.skippedCount}件</span>
               )}
             </div>

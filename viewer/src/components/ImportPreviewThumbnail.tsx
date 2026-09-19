@@ -9,6 +9,15 @@ interface ImportPreviewThumbnailProps {
   onToggleSelect: (sourcePath: string) => void;
 }
 
+const ESTIMATED_DATE_REASON =
+  "EXIFに撮影日時が無いため、ファイルの更新日時から推定しています";
+
+/** `aria-describedby`で参照するためのDOM id。`sourcePath`はコロン・
+ * バックスラッシュ等を含み得るため、id属性として安全な文字だけに変換する。 */
+function toDomId(prefix: string, sourcePath: string): string {
+  return `${prefix}-${sourcePath.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
 /** プレビュー段階（まだarchive.dbに属さない元ファイル）の1件分の表示。
  * 既存`PhotoThumbnail`とは異なりDB由来の`Photo`には依存しない
  * （完了条件: プレビューグリッドは別型を使う）。クリック/選択はチェックボックスで
@@ -23,6 +32,7 @@ export function ImportPreviewThumbnail({
   // TASK-384（C-5）完了条件2: 撮影日時がEXIFから取得できず、ファイルのmtimeで
   // 代用した推定値であることを視覚的に区別できるようにする。
   const isEstimatedDate = item.dateSource === "estimated";
+  const estimatedDateDescriptionId = toDomId("import-estimated-date", item.sourcePath);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -67,6 +77,7 @@ export function ImportPreviewThumbnail({
         checked={isSelected}
         onChange={() => onToggleSelect(item.sourcePath)}
         aria-label={item.filename}
+        aria-describedby={isEstimatedDate ? estimatedDateDescriptionId : undefined}
       />
       {isVideo ? (
         <div className="import-preview-thumbnail__video">
@@ -87,11 +98,20 @@ export function ImportPreviewThumbnail({
           {isEstimatedDate && (
             <span
               className="import-preview-thumbnail__badge import-preview-thumbnail__badge--estimated"
-              title="EXIFに撮影日時が無いため、ファイルの更新日時から推定しています"
+              title={ESTIMATED_DATE_REASON}
             >
               推定日時
             </span>
           )}
+        </span>
+      )}
+      {isEstimatedDate && (
+        // react-reviewer指摘（TASK-384 C-5差し戻しM4）: 理由の説明を`title`
+        // 属性のみに頼ると、キーボード操作者や一部のスクリーンリーダー利用者に
+        // 届かない。チェックボックスの`aria-describedby`から参照される、
+        // 視覚的には隠すが読み上げ可能なテキストとして提供する。
+        <span id={estimatedDateDescriptionId} className="visually-hidden">
+          {ESTIMATED_DATE_REASON}
         </span>
       )}
     </label>

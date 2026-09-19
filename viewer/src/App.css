@@ -18,6 +18,21 @@
   box-sizing: border-box;
 }
 
+/* 視覚的には隠すがスクリーンリーダーには読み上げさせる汎用ユーティリティ。
+   `display: none`/`visibility: hidden`と異なり、アクセシビリティツリーからは
+   除外されない（TASK-384、C-5差し戻し対応: 推定日時バッジの理由説明）。 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   margin: 0;
 }

@@ -70,8 +70,10 @@ export type ImportDedupStatus =
 
 /** `dateTaken`がEXIFの実際の撮影日時（`"captured"`）か、ファイルのmtimeに
  * よる推定（`"estimated"`）かを示す。動画は撮影日時を解析できないため
- * 常に`"estimated"`になる（TASK-384、C-5完了条件2）。`?`はRust側`Option`が
- * `null`にシリアライズされる既存テストフィクスチャとの互換のため。 */
+ * 常に`"estimated"`になる（TASK-384、C-5完了条件2）。Rust側`date_source:
+ * Option<DateSource>`は`skip_serializing_if`指定が無く常にキーが存在する
+ * （値は`null`になり得る）ため、フロントエンド側も必須・nullableとして
+ * 型を一致させる（typescript-reviewer指摘、TASK-384 C-5差し戻し対応）。 */
 export type ImportDateSource = "captured" | "estimated";
 
 export interface ImportPreviewItem {
@@ -80,7 +82,7 @@ export interface ImportPreviewItem {
   kind: ImportMediaKind;
   dedupStatus: ImportDedupStatus;
   dateTaken: string | null;
-  dateSource?: ImportDateSource | null;
+  dateSource: ImportDateSource | null;
 }
 
 /** 非対応形式（HEIC/RAW等）のため取り込み候補から除外されたファイル
@@ -97,10 +99,13 @@ export interface ImportPreview {
   duplicateCount: number;
   errorCount: number;
   items: ImportPreviewItem[];
-  /** 非対応形式のためスキップされた件数。既存のテストフィクスチャ・
-   * モックとの互換のため任意（未指定時は0件として扱う）。 */
-  skippedCount?: number;
-  skippedItems?: ImportSkippedItem[];
+  /** 非対応形式のためスキップされた件数。Rust側`skipped_count: usize`・
+   * `skipped_items: Vec<ImportSkippedItem>`はどちらも`Option`ですらない
+   * 必須フィールドのため、フロントエンド側も必須として型を一致させる
+   * （typescript-reviewer指摘、TASK-384 C-5差し戻し対応。テスト用フィクスチャの
+   * デフォルト値はファクトリ関数側で補う）。 */
+  skippedCount: number;
+  skippedItems: ImportSkippedItem[];
 }
 
 export interface ImportCommitResult {

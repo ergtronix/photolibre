@@ -17,17 +17,13 @@ pub use layout::{place_photo, LayoutError};
 pub use metadata::read_metadata;
 pub use scan::{scan_folder_with_skipped, MediaKind, ScannedFile, SkipReason, SkippedFile};
 
-// `ScanOutcome`は`commands.rs`から`scan_folder_with_skipped`の戻り値として
-// 直接使われるが、フィールドを分解して使う箇所が多いため型名としての
-// 参照頻度は低い。将来の拡張（プレビューDTOへの直接変換等）に備えて残す。
-#[allow(unused_imports)]
-pub use scan::ScanOutcome;
-// TASK-384（C-5）でTauriコマンド層はスキップ理由も必要な`scan_folder_with_skipped`
-// を使うようになったため、`scan_folder`自体は本番コードから直接は呼ばれなく
-// なった。後方互換の薄いラッパーとして`scan.rs`内に残し、単体テストで
-// 引き続き検証しているため、この再エクスポートも維持する。
-#[allow(unused_imports)]
-pub use scan::scan_folder;
+// `ScanOutcome`・`scan_folder`はどちらも`scan.rs`内の単体テストからしか
+// 参照されない（`commands.rs`は`scan_folder_with_skipped`の戻り値を
+// 型名を書かずにフィールド分解して使うのみ、`scan_folder`自体はTASK-384
+// でコマンド層が`scan_folder_with_skipped`に切り替わって以降、本番コードから
+// 参照されなくなった）。実際に使われない再エクスポートを`#[allow(unused_imports)]`
+// で隠して残すのはYAGNI違反（rust-reviewer指摘、TASK-384 C-5差し戻し）のため、
+// `import`モジュールの公開APIからは削除する。
 pub use state::{ImportState, PendingImport, PendingImportItem};
 
 // 以下は現時点でTauriコマンド層からは名前で直接参照されないが、`import`モジュールの

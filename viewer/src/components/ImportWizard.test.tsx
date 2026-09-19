@@ -46,8 +46,14 @@ function makePreview(overrides: Partial<ImportPreview> = {}): ImportPreview {
         kind: "photo",
         dedupStatus: { status: "new" },
         dateTaken: "2020-01-01T00:00:00",
+        dateSource: null,
       },
     ],
+    // Rust側は`skippedCount`/`skippedItems`を必須フィールドとして返すため、
+    // ここでもテストフィクスチャの既定値として補う（typescript-reviewer指摘、
+    // TASK-384 C-5差し戻し対応: 本番の契約型はoptionalにせず、フィクスチャ側で吸収）。
+    skippedCount: 0,
+    skippedItems: [],
     ...overrides,
   };
 }
@@ -154,6 +160,7 @@ describe("ImportWizard", () => {
             kind: "photo",
             dedupStatus: { status: "new" },
             dateTaken: null,
+            dateSource: null,
           },
           {
             sourcePath: "b.jpg",
@@ -161,6 +168,7 @@ describe("ImportWizard", () => {
             kind: "photo",
             dedupStatus: { status: "duplicate_of_existing", photoId: "P-1" },
             dateTaken: null,
+            dateSource: null,
           },
         ],
       })
@@ -328,6 +336,7 @@ describe("ImportWizard", () => {
             kind: "photo",
             dedupStatus: { status: "new" },
             dateTaken: null,
+            dateSource: null,
           },
           {
             sourcePath: "b.jpg",
@@ -335,6 +344,7 @@ describe("ImportWizard", () => {
             kind: "photo",
             dedupStatus: { status: "new" },
             dateTaken: null,
+            dateSource: null,
           },
           {
             sourcePath: "c.jpg",
@@ -342,6 +352,7 @@ describe("ImportWizard", () => {
             kind: "photo",
             dedupStatus: { status: "new" },
             dateTaken: null,
+            dateSource: null,
           },
         ],
       })

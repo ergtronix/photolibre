@@ -20,6 +20,7 @@ function makeItem(overrides: Partial<ImportPreviewItem> = {}): ImportPreviewItem
     kind: "photo",
     dedupStatus: { status: "new" },
     dateTaken: "2020-01-01T00:00:00",
+    dateSource: null,
     ...overrides,
   };
 }
@@ -102,12 +103,33 @@ describe("ImportPreviewGrid", () => {
     expect(screen.getAllByText("推定日時")).toHaveLength(1);
   });
 
-  it("does not show the estimated-date badge when dateSource is missing (older fixtures)", () => {
-    const items = [makeItem({ sourcePath: "a.jpg", filename: "a.jpg", dateSource: undefined })];
+  it("does not show the estimated-date badge when dateSource is null (captured or unknown)", () => {
+    const items = [makeItem({ sourcePath: "a.jpg", filename: "a.jpg", dateSource: null })];
 
     renderGrid({ items });
 
     expect(screen.queryByText("推定日時")).not.toBeInTheDocument();
+  });
+
+  // typescript-reviewer指摘（TASK-384 C-5差し戻しM4）: 推定日時の理由説明を
+  // titleだけに頼らず、キーボード操作者・スクリーンリーダー利用者にも
+  // aria-describedby経由で到達可能にする。
+  it("exposes the estimated-date reason to assistive tech via aria-describedby, not just title", () => {
+    const items = [
+      makeItem({ sourcePath: "b.mov", filename: "b.mov", kind: "video", dateSource: "estimated" }),
+    ];
+
+    renderGrid({ items });
+
+    const checkbox = screen.getByRole("checkbox", { name: "b.mov" });
+    const describedById = checkbox.getAttribute("aria-describedby");
+    expect(describedById).toBeTruthy();
+
+    const description = document.getElementById(describedById as string);
+    expect(description).not.toBeNull();
+    expect(description).toHaveTextContent(
+      "EXIFに撮影日時が無いため、ファイルの更新日時から推定しています"
+    );
   });
 
   it("calls onToggleSelect with the item's source path when clicked", async () => {
