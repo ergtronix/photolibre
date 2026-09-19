@@ -434,6 +434,34 @@ impl From<&DedupStatus> for DedupStatusDto {
     }
 }
 
+/// フロントエンド向けにシリアライズ可能な`import::SkipReason`のDTO表現
+/// （TASK-384、C-5）。`import::SkipReason`自体は`#[serde(rename_all =
+/// "snake_case")]`で既にシリアライズ可能だが、他のDTO（`DedupStatusDto`等）と
+/// 同様にコマンド層専用の変換経路を明示するためにラップする。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReasonDto {
+    UnsupportedFormat,
+}
+
+impl From<import::SkipReason> for SkipReasonDto {
+    fn from(reason: import::SkipReason) -> Self {
+        match reason {
+            import::SkipReason::UnsupportedFormat => SkipReasonDto::UnsupportedFormat,
+        }
+    }
+}
+
+/// スキップされたファイル1件分のプレビュー表示用DTO。HEIC/RAW等、
+/// 「非対応形式のため取り込み候補に含まれない」ことをユーザーに
+/// 説明するために使う（完了条件1: スキップ理由が正しく記録されること）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSkippedItem {
+    pub filename: String,
+    pub reason: SkipReasonDto,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreviewItem {
@@ -442,6 +470,10 @@ pub struct ImportPreviewItem {
     pub kind: MediaKind,
     pub dedup_status: DedupStatusDto,
     pub date_taken: Option<String>,
+    /// `date_taken`がEXIFの実際の撮影日時（`captured`）か、ファイルの
+    /// mtimeによる推定（`estimated`）かを示す。動画は`kamadak-exif`が
+    /// コンテナを解釈できないため常に`estimated`になる（完了条件2）。
+    pub date_source: Option<import::DateSource>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -451,6 +483,9 @@ pub struct ImportPreview {
     pub duplicate_count: usize,
     pub error_count: usize,
     pub items: Vec<ImportPreviewItem>,
+    /// 非対応形式（HEIC/RAW等）のため取り込み候補から除外された件数。
+    pub skipped_count: usize,
+    pub skipped_items: Vec<ImportSkippedItem>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -540,22 +575,31 @@ where
 
 /// `source_folder`配下を実際に走査してから`classify_scanned_files`に委譲する
 /// 薄いラッパー（実ファイルシステムに依存するため単体テストは
-/// `classify_scanned_files`側で行う）。
+/// `classify_scanned_files`側で行う）。`scan_folder_with_skipped`が返す
+/// スキップ済みファイル一覧（HEIC/RAW等）もそのまま呼び出し元へ返す
+/// （完了条件1: スキップ理由がプレビューまで伝播すること）。
 fn scan_and_classify_with_progress<F>(
     source_folder: &Path,
     known_hashes: &HashMap<String, String>,
     on_progress: F,
-) -> (PendingImport, usize)
+) -> (PendingImport, usize, Vec<import::SkippedFile>)
 where
     F: FnMut(usize, usize, &Path),
 {
-    let scanned = import::scan_folder(source_folder);
-    classify_scanned_files(source_folder, scanned, known_hashes, on_progress)
+    let outcome = import::scan_folder_with_skipped(source_folder);
+    let (pending, error_count) =
+        classify_scanned_files(source_folder, outcome.found, known_hashes, on_progress);
+    (pending, error_count, outcome.skipped)
 }
 
-/// スキャン結果（`PendingImport`）から、フロントエンド向けの`ImportPreview`を
-/// 組み立てる。書き込みは一切行わない。
-fn build_import_preview(pending: &PendingImport, error_count: usize) -> ImportPreview {
+/// スキャン結果（`PendingImport`）と非対応形式のためスキップされたファイル
+/// 一覧から、フロントエンド向けの`ImportPreview`を組み立てる。書き込みは
+/// 一切行わない。
+fn build_import_preview(
+    pending: &PendingImport,
+    error_count: usize,
+    skipped: &[import::SkippedFile],
+) -> ImportPreview {
     let mut new_count = 0usize;
     let mut duplicate_count = 0usize;
 
@@ -578,7 +622,20 @@ fn build_import_preview(pending: &PendingImport, error_count: usize) -> ImportPr
                 kind: item.kind,
                 dedup_status: DedupStatusDto::from(&item.dedup_status),
                 date_taken: item.metadata.date_taken.clone(),
+                date_source: item.metadata.date_source,
             }
+        })
+        .collect();
+
+    let skipped_items: Vec<ImportSkippedItem> = skipped
+        .iter()
+        .map(|skipped_file| ImportSkippedItem {
+            filename: skipped_file
+                .path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            reason: SkipReasonDto::from(skipped_file.reason),
         })
         .collect();
 
@@ -587,6 +644,8 @@ fn build_import_preview(pending: &PendingImport, error_count: usize) -> ImportPr
         duplicate_count,
         error_count,
         items,
+        skipped_count: skipped_items.len(),
+        skipped_items,
     }
 }
 
@@ -689,7 +748,7 @@ pub async fn scan_import_source_command(
     drop(conn);
 
     let app_for_progress = app.clone();
-    let (pending, error_count) = tauri::async_runtime::spawn_blocking(move || {
+    let (pending, error_count, skipped) = tauri::async_runtime::spawn_blocking(move || {
         let mut throttle = ProgressThrottle::new();
         scan_and_classify_with_progress(
             &source_folder_path,
@@ -716,7 +775,7 @@ pub async fn scan_import_source_command(
     .await
     .map_err(|e| e.to_string())?;
 
-    let preview = build_import_preview(&pending, error_count);
+    let preview = build_import_preview(&pending, error_count, &skipped);
     *import_state.0.lock().unwrap() = Some(pending);
     Ok(preview)
 }
@@ -1074,13 +1133,65 @@ mod tests {
             ],
         };
 
-        let preview = build_import_preview(&pending, 2);
+        let preview = build_import_preview(&pending, 2, &[]);
 
         assert_eq!(preview.new_count, 1);
         assert_eq!(preview.duplicate_count, 1);
         assert_eq!(preview.error_count, 2);
         assert_eq!(preview.items.len(), 2);
         assert_eq!(preview.items[0].filename, "a.jpg");
+        assert_eq!(preview.skipped_count, 0);
+        assert!(preview.skipped_items.is_empty());
+    }
+
+    #[test]
+    fn build_import_preview_includes_skipped_items_with_unsupported_format_reason() {
+        // TASK-384（C-5）完了条件1: HEIC等のスキップ理由がプレビューまで
+        // 正しく伝播すること。
+        let pending = PendingImport {
+            source_folder: PathBuf::from("D:/DCIM"),
+            items: vec![sample_item("D:/DCIM/a.jpg", DedupStatus::New)],
+        };
+        let skipped = vec![import::SkippedFile {
+            path: PathBuf::from("D:/DCIM/photo.heic"),
+            reason: import::SkipReason::UnsupportedFormat,
+        }];
+
+        let preview = build_import_preview(&pending, 0, &skipped);
+
+        assert_eq!(preview.skipped_count, 1);
+        assert_eq!(preview.skipped_items.len(), 1);
+        assert_eq!(preview.skipped_items[0].filename, "photo.heic");
+        assert_eq!(
+            preview.skipped_items[0].reason,
+            SkipReasonDto::UnsupportedFormat
+        );
+    }
+
+    #[test]
+    fn build_import_preview_carries_date_source_from_item_metadata() {
+        // TASK-384（C-5）完了条件2: 動画/EXIF無し写真のmtimeフォールバック
+        // （date_source=Estimated）がプレビューDTOまで伝播すること。
+        let mut captured_item = sample_item("D:/DCIM/a.jpg", DedupStatus::New);
+        captured_item.metadata.date_source = Some(import::DateSource::Captured);
+        let mut estimated_item = sample_item("D:/DCIM/clip.mp4", DedupStatus::New);
+        estimated_item.metadata.date_source = Some(import::DateSource::Estimated);
+
+        let pending = PendingImport {
+            source_folder: PathBuf::from("D:/DCIM"),
+            items: vec![captured_item, estimated_item],
+        };
+
+        let preview = build_import_preview(&pending, 0, &[]);
+
+        assert_eq!(
+            preview.items[0].date_source,
+            Some(import::DateSource::Captured)
+        );
+        assert_eq!(
+            preview.items[1].date_source,
+            Some(import::DateSource::Estimated)
+        );
     }
 
     #[test]
@@ -1218,6 +1329,178 @@ mod tests {
         assert!(
             !thumbnails_dir.exists(),
             "archive_root/.thumbnailsには一切書き込まれないこと"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // TASK-384（C-5）: 結合テスト（スキャン→プレビュー→コミット→アルバム追加）
+    // -----------------------------------------------------------------
+    //
+    // importer側`test_end_to_end_import.py`の方針にならい、実際のファイル
+    // システム・実際のsqlite接続を使って一連の流れを検証する。
+    // `#[tauri::command]`自体（AppHandle/State越しのIPC配線）は
+    // `validate_preview_source_path`・`ImportCommitResult::from`・
+    // `ImportProgressPhase`のシリアライズ等ですでに個別に検証済みのため、
+    // ここではコマンドハンドラが内部で呼び出す実処理の連鎖
+    // （`scan_folder_with_skipped` → `classify_scanned_files` →
+    // `build_import_preview` → `select_pending_items` →
+    // `db::commit_new_import_items` → `db::create_album` /
+    // `db::add_photos_to_album`）を実際に繋げて検証する。
+
+    fn integration_fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
+
+    #[test]
+    fn full_import_pipeline_scans_previews_commits_and_adds_to_album() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let archive_root = tempfile::tempdir().unwrap();
+
+        // 1. EXIF付きの実フィクスチャ → date_source=Captured（完了条件2）。
+        let with_exif = source_dir.path().join("with_exif.jpg");
+        std::fs::copy(integration_fixture("sample_with_exif.jpg"), &with_exif).unwrap();
+
+        // 2. EXIF無し写真 → mtimeフォールバック（date_source=Estimated）。
+        let without_exif = source_dir.path().join("without_exif.jpg");
+        std::fs::copy(
+            integration_fixture("sample_without_exif.jpg"),
+            &without_exif,
+        )
+        .unwrap();
+
+        // 3. 動画（kamadak-exifはコンテナを解釈できないため常にmtime
+        //    フォールバック＝Estimated、完了条件2）。
+        let video = source_dir.path().join("clip.mp4");
+        std::fs::write(&video, b"not a real video container, mtime fallback only").unwrap();
+
+        // 4. HEIC（v1では非対応。スキャン結果から除外され、スキップ理由が
+        //    記録される、完了条件1）。
+        let heic = source_dir.path().join("photo.heic");
+        std::fs::write(&heic, b"fake heic bytes").unwrap();
+
+        // 5. 内容は壊れているが読み取り自体はできるファイル（例:
+        //    転送が途中で中断された不完全なjpg）。SHA-256はどんなバイト列も
+        //    ハッシュ化でき、EXIF読み取り失敗もmtimeへグレースフルに
+        //    フォールバックするため、他の正常なファイルと同様に最後まで
+        //    正常に取り込まれることを確認する（完了条件3の一部）。
+        let corrupted = source_dir.path().join("corrupted.jpg");
+        std::fs::write(&corrupted, b"\x00\x01\x02this is not a valid jpeg at all").unwrap();
+
+        // 6. スキャン時点では存在するが、ハッシュ計算前に読み取り不能になる
+        //    ファイル（SDカードの抜去・接触不良等を模す）。この1件だけが
+        //    スキップされ、他の正常なファイルの取り込みは継続することを
+        //    確認する（完了条件3）。
+        let vanishing = source_dir.path().join("vanishing.jpg");
+        std::fs::write(&vanishing, b"will disappear before hashing").unwrap();
+
+        // --- スキャン ---
+        let scan_outcome = import::scan_folder_with_skipped(source_dir.path());
+        assert_eq!(
+            scan_outcome.skipped.len(),
+            1,
+            "HEICのみがスキップ対象として記録されること"
+        );
+        assert_eq!(
+            scan_outcome.skipped[0].reason,
+            import::SkipReason::UnsupportedFormat
+        );
+        assert!(scan_outcome.skipped[0].path.ends_with("photo.heic"));
+
+        // スキャン後・ハッシュ計算前にファイルが失われる状況を再現する。
+        std::fs::remove_file(&vanishing).unwrap();
+
+        let known_hashes = HashMap::new();
+        let (pending, error_count) = classify_scanned_files(
+            source_dir.path(),
+            scan_outcome.found,
+            &known_hashes,
+            |_, _, _| {},
+        );
+
+        assert_eq!(
+            error_count, 1,
+            "消失した1件だけがエラーとしてカウントされること"
+        );
+        assert_eq!(
+            pending.items.len(),
+            4,
+            "残り4件（EXIF有無2件・動画・壊れた内容のjpg）は正常に走査されること"
+        );
+
+        // --- プレビュー ---
+        let preview = build_import_preview(&pending, error_count, &scan_outcome.skipped);
+        assert_eq!(preview.new_count, 4);
+        assert_eq!(preview.error_count, 1);
+        assert_eq!(preview.skipped_count, 1);
+        assert_eq!(preview.skipped_items[0].filename, "photo.heic");
+
+        let find_item = |filename: &str| {
+            preview
+                .items
+                .iter()
+                .find(|item| item.filename == filename)
+                .unwrap_or_else(|| panic!("{filename} should be present in the preview"))
+        };
+        assert_eq!(
+            find_item("with_exif.jpg").date_source,
+            Some(import::DateSource::Captured)
+        );
+        assert_eq!(
+            find_item("without_exif.jpg").date_source,
+            Some(import::DateSource::Estimated)
+        );
+        assert_eq!(
+            find_item("clip.mp4").date_source,
+            Some(import::DateSource::Estimated)
+        );
+
+        // --- コミット ---
+        let selected_paths: Vec<String> = preview
+            .items
+            .iter()
+            .map(|item| item.source_path.clone())
+            .collect();
+        let selected_items = select_pending_items(pending, &selected_paths);
+        assert_eq!(selected_items.len(), 4);
+
+        let mut archive_conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::test_support::create_test_schema(&archive_conn);
+
+        let summary =
+            db::commit_new_import_items(&mut archive_conn, archive_root.path(), &selected_items)
+                .expect("4件とも正常にコピー・DB挿入されること");
+
+        assert_eq!(
+            summary.inserted_photo_ids.len(),
+            4,
+            "壊れた内容のjpgを含む4件すべてが正常に取り込まれること"
+        );
+        assert!(summary.failed_files.is_empty());
+        assert_eq!(summary.duplicate_count, 0);
+
+        let copied_files: Vec<_> = walkdir::WalkDir::new(archive_root.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .collect();
+        assert_eq!(
+            copied_files.len(),
+            4,
+            "実際にファイルシステムへ4件コピーされていること"
+        );
+
+        // --- アルバム追加 ---
+        let album = db::create_album(&archive_conn, "取り込みテスト").unwrap();
+        db::add_photos_to_album(&archive_conn, &album.id, &summary.inserted_photo_ids).unwrap();
+
+        let album_photos = db::list_album_photos(&archive_conn, &album.id).unwrap();
+        assert_eq!(
+            album_photos.len(),
+            4,
+            "コミットした写真が全てアルバムに追加されること"
         );
     }
 }
