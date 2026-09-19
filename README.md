@@ -60,6 +60,7 @@ Source A（Photos.app）3,556枚・Source B（iPhoto、1998〜2016年分含む�
 - アルバムの手動作成・リネーム、複数選択してのドラッグ&ドロップによる写真の分類・未分類への差し戻し
 - 上記の分類操作はすべてCtrl+Zで取り消し可能（Undo）
 - 動画ファイルはOS標準の動画プレイヤーで再生
+- デジタルカメラ・SDカード・スマホから直接、写真/動画をアーカイブへ取り込み（詳細は[Windows側ドキュメント](docs/02-import-and-view-windows.md)の「2-6. デジタルカメラ・SDカード・スマホからの取り込み」を参照）
 
 ---
 
@@ -68,7 +69,7 @@ Source A（Photos.app）3,556枚・Source B（iPhoto、1998〜2016年分含む�
 | 項目 | 内容 |
 |---|---|
 | インポーター（`importer/`） | Python 3.11+（TDD、pytest、カバレッジ98%） |
-| 閲覧アプリ（`viewer/`） | Tauri 2.x（Rust）+ React 19 + TypeScript（TDD、Rust 53テスト・フロントエンド99テスト） |
+| 閲覧アプリ（`viewer/`） | Tauri 2.x（Rust）+ React 19 + TypeScript（TDD、Rust 153テスト・フロントエンド154テスト） |
 | データ形式 | SQLite（`archive.db`）+ XMPサイドカー |
 
 ---
