@@ -61,11 +61,11 @@ pub fn list_photos(conn: &Connection, filter: &PhotoFilter) -> Result<Vec<Photo>
         conditions.push("p.favorite = 1".to_string());
     }
     if let Some(year) = filter.year {
-        conditions.push("strftime('%Y', p.date_taken) = ?".to_string());
+        conditions.push("substr(p.date_taken, 1, 4) = ?".to_string());
         args.push(Box::new(format!("{year:04}")));
     }
     if let Some(month) = filter.month {
-        conditions.push("strftime('%m', p.date_taken) = ?".to_string());
+        conditions.push("substr(p.date_taken, 6, 2) = ?".to_string());
         args.push(Box::new(format!("{month:02}")));
     }
     if let Some(keyword) = &filter.keyword {
@@ -86,6 +86,39 @@ pub fn list_photos(conn: &Connection, filter: &PhotoFilter) -> Result<Vec<Photo>
     )?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(DbError::from)
+}
+
+/// 写真のある年の一覧（新しい年が先）。年の絞り込み（`list_photos`の
+/// `substr(p.date_taken, 1, 4) = ?`）と同じ式で求めるため、一覧にある年を
+/// 選べば必ず1件以上の写真が出る。`strftime`によるUTC換算をしない（記録された
+/// 日付の先頭4文字をそのまま使う）ため、タイムゾーン付きの日付でも、記録された
+/// 日付通りの年として数える。`date_taken`がNULLの写真は除くが、先頭4文字が
+/// 4桁の数字であれば、それ以上の妥当性検証（不正な月・日、裸の年数字などかどうか）
+/// はせず、そのまま年として扱う。これは、`date_taken`が常にインポーター/EXIF由来の
+/// 妥当な日時文字列であることを前提にしている（`importer/`とRust側の取り込み処理は、
+/// いずれも不正な日付を書き込まない）。
+pub fn list_photo_years(conn: &Connection) -> Result<Vec<i32>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT substr(date_taken, 1, 4) FROM photos WHERE date_taken IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([], |row| row.get::<_, Option<String>>(0))?;
+    let mut years = Vec::new();
+    for row in rows {
+        if let Some(year) = row?.as_deref().and_then(parse_four_digit_year) {
+            years.push(year);
+        }
+    }
+    years.sort_unstable_by(|a, b| b.cmp(a));
+    years.dedup();
+    Ok(years)
+}
+
+fn parse_four_digit_year(value: &str) -> Option<i32> {
+    if value.len() == 4 && value.bytes().all(|b| b.is_ascii_digit()) {
+        value.parse().ok()
+    } else {
+        None
+    }
 }
 
 pub fn list_albums(conn: &Connection) -> Result<Vec<Album>, DbError> {
@@ -676,6 +709,279 @@ mod tests {
     }
 
     #[test]
+    fn list_photos_filters_by_year_and_month_using_the_recorded_date_without_utc_conversion() {
+        let conn = setup();
+        // UTC換算すると2020年12月になり絞り込みから漏れてしまうが、記録された
+        // 日付の先頭（substr）で判定するため、2021年1月として出る。
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2021-01-01T05:00:00+09:00",
+            false,
+            "source_a",
+        );
+
+        let filter = PhotoFilter {
+            year: Some(2021),
+            month: Some(1),
+            ..Default::default()
+        };
+        let photos = list_photos(&conn, &filter).unwrap();
+
+        assert_eq!(photos.len(), 1);
+        assert_eq!(photos[0].id, "1");
+
+        let old_utc_filter = PhotoFilter {
+            year: Some(2020),
+            month: Some(12),
+            ..Default::default()
+        };
+        let old_utc_photos = list_photos(&conn, &old_utc_filter).unwrap();
+        assert!(
+            old_utc_photos.is_empty(),
+            "UTC換算後の年月（2020年12月）では絞り込まれないこと"
+        );
+    }
+
+    // ---- list_photo_years（TASK-390: 年の絞り込み一覧を写真のある年から作る） ----
+
+    fn insert_photo_with_nullable_date(conn: &Connection, id: &str, date_taken: Option<&str>) {
+        conn.execute(
+            "INSERT INTO photos (id, filename, filepath, media_type, date_taken, favorite, hidden, source) \
+             VALUES (?1, ?1, ?1, 'photo', ?2, 0, 0, 'source_a')",
+            rusqlite::params![id, date_taken],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn list_photo_years_returns_distinct_years_newest_first() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2019-05-03T10:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "b.jpg",
+            "2027-01-01T00:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "3",
+            "c.jpg",
+            "2019-12-31T23:59:59",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "4",
+            "d.jpg",
+            "2026-09-22T08:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "5",
+            "e.jpg",
+            "2027-06-15T12:00:00",
+            false,
+            "source_a",
+        );
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert_eq!(years, vec![2027, 2026, 2019]);
+    }
+
+    #[test]
+    fn list_photo_years_excludes_null_and_non_numeric_dates() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "ok",
+            "ok.jpg",
+            "2020-03-01T00:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo_with_nullable_date(&conn, "null", None);
+        insert_photo_with_nullable_date(&conn, "garbage", Some("not-a-date"));
+        insert_photo_with_nullable_date(&conn, "empty", Some(""));
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert_eq!(years, vec![2020]);
+    }
+
+    #[test]
+    fn list_photo_years_treats_the_first_four_characters_as_the_year_without_validating_the_rest() {
+        // substrは日付全体の妥当性を検証しない（先頭4文字を年として使うだけ）。
+        // date_takenは常にインポート処理が生成した正しい形式である前提のため、
+        // 月が不正な値（13月など）でも、年だけの裸の文字列でも、先頭4文字が
+        // 数字4桁であれば年として数える。strftimeを使っていた旧実装では、
+        // これらはSQLiteの日付関数がNULL・負の値を返すため除外されていたが
+        // （旧テスト`list_photo_years_excludes_null_and_invalid_dates`参照）、
+        // 新実装ではその安全策はない（parse_four_digit_yearによる4桁数字の
+        // チェックのみ）。これは意図した仕様（TASK-391）。
+        let conn = setup();
+        insert_photo_with_nullable_date(&conn, "bad-month", Some("2031-13-45T00:00:00"));
+        insert_photo_with_nullable_date(&conn, "bare-number", Some("2020"));
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert_eq!(years, vec![2031, 2020]);
+    }
+
+    #[test]
+    fn list_photo_years_returns_empty_when_there_are_no_photos() {
+        let conn = setup();
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert!(years.is_empty());
+    }
+
+    #[test]
+    fn list_photo_years_returns_empty_when_no_photo_has_a_usable_date() {
+        let conn = setup();
+        insert_photo_with_nullable_date(&conn, "null", None);
+        insert_photo_with_nullable_date(&conn, "garbage", Some("xxxx"));
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert!(years.is_empty());
+    }
+
+    #[test]
+    fn list_photo_years_uses_the_recorded_date_without_utc_conversion() {
+        let conn = setup();
+        // UTC換算すると2020-12-31T20:00:00になり2020年に数えられてしまうが、
+        // 記録された日付の先頭（substr）で数えるため、2021年として数える。
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2021-01-01T05:00:00+09:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "b.jpg",
+            "2021-12-31T10:00:00",
+            false,
+            "source_a",
+        );
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert_eq!(years, vec![2021]);
+    }
+
+    #[test]
+    fn list_photo_years_every_year_returns_at_least_one_photo_from_list_photos() {
+        let conn = setup();
+        insert_photo(
+            &conn,
+            "1",
+            "a.jpg",
+            "2008-05-03T10:00:00",
+            false,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "2",
+            "b.jpg",
+            "2021-01-01T10:00:00+09:00",
+            true,
+            "source_a",
+        );
+        insert_photo(
+            &conn,
+            "3",
+            "c.jpg",
+            "2027-02-30T00:00:00",
+            false,
+            "source_a",
+        );
+        // 隠し写真（hidden=1）も年の一覧・絞り込みの両方に含まれること
+        // （list_photos/list_photo_yearsはどちらもhiddenで除外しない仕様）。
+        conn.execute(
+            "INSERT INTO photos (id, filename, filepath, media_type, date_taken, favorite, hidden, source) \
+             VALUES ('4', 'd.jpg', 'd.jpg', 'photo', '2015-06-10T00:00:00', 0, 1, 'source_a')",
+            [],
+        )
+        .unwrap();
+        insert_photo_with_nullable_date(&conn, "null", None);
+        // "bare-number"（裸の年文字列）は、substrベースの新実装では先頭4文字が
+        // そのまま年として通ってしまうため、ここでは非数字の"garbage"だけを
+        // 除外対象として使う（裸の年文字列の扱いは別テスト
+        // `list_photo_years_treats_the_first_four_characters_as_the_year_without_validating_the_rest`
+        // で検証済み）。
+        insert_photo_with_nullable_date(&conn, "garbage", Some("not-a-date"));
+
+        let years = list_photo_years(&conn).unwrap();
+
+        assert_eq!(years, vec![2027, 2021, 2015, 2008]);
+        for year in years {
+            let filter = PhotoFilter {
+                year: Some(year),
+                ..Default::default()
+            };
+            let photos = list_photos(&conn, &filter).unwrap();
+            assert!(
+                !photos.is_empty(),
+                "年{year}を選んだのに写真が0件（一覧と絞り込みの式が食い違っている）"
+            );
+        }
+    }
+
+    // ---- parse_four_digit_year（rust-reviewer指摘のMEDIUM: 直接テストを追加） ----
+
+    #[test]
+    fn parse_four_digit_year_accepts_four_ascii_digits() {
+        assert_eq!(parse_four_digit_year("2026"), Some(2026));
+        assert_eq!(parse_four_digit_year("0000"), Some(0));
+        assert_eq!(parse_four_digit_year("9999"), Some(9999));
+    }
+
+    #[test]
+    fn parse_four_digit_year_rejects_signed_numbers() {
+        assert_eq!(parse_four_digit_year("+202"), None);
+        assert_eq!(parse_four_digit_year("-470"), None);
+    }
+
+    #[test]
+    fn parse_four_digit_year_rejects_full_width_digits() {
+        // 全角数字（U+FF10-U+FF19）はbyte単位では4バイトに収まらず、
+        // is_ascii_digitもfalseになるため弾かれる。
+        assert_eq!(parse_four_digit_year("２０２０"), None);
+    }
+
+    #[test]
+    fn parse_four_digit_year_rejects_empty_string() {
+        assert_eq!(parse_four_digit_year(""), None);
+    }
+
+    #[test]
+    fn parse_four_digit_year_rejects_wrong_length() {
+        assert_eq!(parse_four_digit_year("20260"), None);
+    }
+
+    #[test]
     fn list_photos_filters_by_keyword() {
         let conn = setup();
         insert_photo(
@@ -1205,6 +1511,17 @@ mod tests {
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].name, "夏休み2008");
         assert_eq!(albums[0].photo_count, 1);
+
+        let years = list_photo_years(&conn).expect("list_photo_yearsが成功すること");
+        assert_eq!(years, vec![2008]);
+        for year in years {
+            let filter = PhotoFilter {
+                year: Some(year),
+                ..Default::default()
+            };
+            let by_year = list_photos(&conn, &filter).expect("年での絞り込みが成功すること");
+            assert_eq!(by_year.len(), 2, "一覧の年で絞り込むと写真が出ること");
+        }
 
         let album_photos =
             list_album_photos(&conn, &albums[0].id).expect("list_album_photosが成功すること");

@@ -4,13 +4,25 @@ import type { PhotoFilter } from "../lib/types";
 
 interface FilterBarProps {
   filter: PhotoFilter;
+  /** 年の選択肢。アーカイブ内の写真のある年（新しい年が先）。 */
+  years: number[];
   onChange: (filter: PhotoFilter) => void;
 }
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
-const YEARS = Array.from({ length: 40 }, (_, i) => 2026 - i);
 
-export function FilterBar({ filter, onChange }: FilterBarProps) {
+/** 選択中の年が一覧にない場合（一覧の読み込み前など）でも、選択がずれて
+ * 「すべて」に見えないよう、その年を降順の位置に加える。 */
+function withSelectedYear(years: number[], selectedYear: number | null): number[] {
+  if (selectedYear === null || years.includes(selectedYear)) {
+    return years;
+  }
+  return [...years, selectedYear].sort((a, b) => b - a);
+}
+
+export function FilterBar({ filter, years, onChange }: FilterBarProps) {
+  const yearOptions = withSelectedYear(years, filter.year);
+
   const handleFavoriteChange = (event: ChangeEvent<HTMLInputElement>) => {
     onChange({ ...filter, favoriteOnly: event.target.checked });
   };
@@ -41,7 +53,7 @@ export function FilterBar({ filter, onChange }: FilterBarProps) {
         年
         <select value={filter.year ?? ""} onChange={handleYearChange}>
           <option value="">すべて</option>
-          {YEARS.map((year) => (
+          {yearOptions.map((year) => (
             <option key={year} value={year}>
               {year}
             </option>

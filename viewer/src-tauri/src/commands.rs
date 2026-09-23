@@ -87,6 +87,13 @@ pub fn list_photos_command(
 }
 
 #[tauri::command]
+pub fn list_photo_years_command(state: State<ArchiveState>) -> Result<Vec<i32>, String> {
+    let archive_root = require_archive_path(&state)?;
+    let conn = db::open_archive(&archive_root).map_err(|e| e.to_string())?;
+    db::list_photo_years(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn list_albums_command(state: State<ArchiveState>) -> Result<Vec<Album>, String> {
     let archive_root = require_archive_path(&state)?;
     let conn = db::open_archive(&archive_root).map_err(|e| e.to_string())?;

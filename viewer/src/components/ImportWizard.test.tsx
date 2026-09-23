@@ -86,6 +86,16 @@ describe("ImportWizard", () => {
     expect(screen.getByRole("button", { name: "フォルダを選択" })).toBeInTheDocument();
   });
 
+  it("shows a notice that the native folder dialog will not display photo thumbnails", () => {
+    render(<ImportWizard albums={[]} onClose={vi.fn()} onImportComplete={vi.fn()} />);
+
+    expect(
+      screen.getByText(
+        "次の画面は、Windows標準のフォルダ選択画面です。中の写真は表示されません。 フォルダを選ぶと、次の画面で写真の一覧を確認できます。",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("stays on the pick step when the folder dialog is cancelled", async () => {
     const user = userEvent.setup();
     pickImportSourceFolderMock.mockResolvedValue(null);
@@ -385,7 +395,10 @@ describe("ImportWizard", () => {
     expect(screen.queryByText(/中断されました/)).not.toBeInTheDocument();
   });
 
-  it("calls onImportComplete and onClose when viewing imported photos", async () => {
+  // TASK-393（react-reviewer HIGH指摘の修正）: 取り込んだ写真を見るときは
+  // onImportCompleteだけを呼び、onCloseは呼ばない（両方呼ぶと、古いビューの
+  // reloadCurrentPhotosと新しいビューのlistPhotosByIdsが競合するため）。
+  it("calls onImportComplete but not onClose when viewing imported photos", async () => {
     const user = userEvent.setup();
     const onImportComplete = vi.fn();
     const onClose = vi.fn();
@@ -401,7 +414,7 @@ describe("ImportWizard", () => {
     await user.click(screen.getByRole("button", { name: "取り込んだ写真を見る" }));
 
     expect(onImportComplete).toHaveBeenCalledWith(["P-NEW-1"]);
-    expect(onClose).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("shows an error and returns to the pick step when scanning fails", async () => {

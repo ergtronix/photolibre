@@ -31,6 +31,11 @@ export async function listPhotos(filter: PhotoFilter): Promise<Photo[]> {
   });
 }
 
+/** 写真のある年の一覧（新しい年が先）。年の絞り込みの選択肢に使う。 */
+export async function listPhotoYears(): Promise<number[]> {
+  return invoke<number[]>("list_photo_years_command");
+}
+
 export async function listAlbums(): Promise<Album[]> {
   return invoke<Album[]>("list_albums_command");
 }

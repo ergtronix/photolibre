@@ -9,10 +9,26 @@ mod thumbnail;
 use commands::ArchiveState;
 use import::ImportState;
 use std::sync::Mutex;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 2回目の起動を検知したら、新しいウィンドウを作らず、
+            // 既存のウィンドウを前面に出す（二重起動防止、TASK-394）。
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(e) = window.show() {
+                    eprintln!("single-instance: failed to show window: {e}");
+                }
+                if let Err(e) = window.unminimize() {
+                    eprintln!("single-instance: failed to unminimize window: {e}");
+                }
+                if let Err(e) = window.set_focus() {
+                    eprintln!("single-instance: failed to focus window: {e}");
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(ArchiveState(Mutex::new(None)))
@@ -21,6 +37,7 @@ pub fn run() {
             commands::set_archive_path,
             commands::get_archive_path,
             commands::list_photos_command,
+            commands::list_photo_years_command,
             commands::list_albums_command,
             commands::list_album_photos_command,
             commands::search_photos_command,

@@ -233,6 +233,7 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
   const handleViewImported = () => {
     if (commitResult && commitResult.insertedPhotoIds.length > 0) {
       onImportComplete(commitResult.insertedPhotoIds);
+      return;
     }
     onClose();
   };
@@ -272,6 +273,10 @@ export function ImportWizard({ albums, onClose, onImportComplete }: ImportWizard
             <p className="import-wizard__hint">
               スマホの場合は、あらかじめWindowsのフォトアプリ/エクスプローラーで
               任意のフォルダにコピーしてから、そのフォルダを指定してください。
+            </p>
+            <p className="import-wizard__native-dialog-notice">
+              次の画面は、Windows標準のフォルダ選択画面です。中の写真は表示されません。
+              フォルダを選ぶと、次の画面で写真の一覧を確認できます。
             </p>
             {errorMessage && (
               <p className="import-wizard__error" role="alert">

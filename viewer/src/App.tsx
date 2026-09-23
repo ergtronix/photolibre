@@ -15,6 +15,7 @@ import {
   getArchivePath,
   listAlbumPhotos,
   listAlbums,
+  listPhotoYears,
   listPhotos,
   listPhotosByIds,
   listUnfiledPhotos,
@@ -44,6 +45,7 @@ export default function App() {
   const [unfiledCount, setUnfiledCount] = useState(0);
   const [selection, setSelection] = useState<AlbumSelection>({ kind: "all" });
   const [filter, setFilter] = useState<PhotoFilter>(EMPTY_FILTER);
+  const [photoYears, setPhotoYears] = useState<number[]>([]);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
@@ -75,6 +77,25 @@ export default function App() {
       if (!cancelled) {
         setAlbums(albumList);
         setUnfiledCount(unfiled);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [archivePath]);
+
+  // 年の絞り込みの選択肢は、アーカイブ内の写真のある年から作る。アーカイブを
+  // 開いたとき・切り替えたときに読み込む（取り込み完了後は、「取り込んだ写真を見る」
+  // なら下のhandleImportCompleteが、×・Escape・「閉じる」ならcloseImportWizardが
+  // 読み込み直す）。
+  useEffect(() => {
+    if (!archivePath) {
+      return;
+    }
+    let cancelled = false;
+    listPhotoYears().then((years) => {
+      if (!cancelled) {
+        setPhotoYears(years);
       }
     });
     return () => {
@@ -144,6 +165,23 @@ export default function App() {
     setUnfiledCount(unfiled);
   };
 
+  const refreshPhotoYears = async () => {
+    setPhotoYears(await listPhotoYears());
+  };
+
+  /** 取り込みウィザードを閉じる（×・Escape・「閉じる」ボタン。onCloseの呼び出し経路。
+   * 「取り込んだ写真を見る」を選んだときはhandleImportCompleteがonCloseを呼ばず、
+   * こちらは実行されない（TASK-393）。selectionを変更しないこのcloseImportWizardは、
+   * 写真一覧の読み込み直し用useEffectが働かないため、年の一覧・アルバム一覧・現在
+   * 表示中の写真一覧を、ここでrefreshPhotoYears・refreshSidebar・reloadCurrentPhotos
+   * として明示的に呼び出す必要がある（TASK-392）。 */
+  const closeImportWizard = () => {
+    setShowImportWizard(false);
+    void refreshPhotoYears();
+    void refreshSidebar();
+    void reloadCurrentPhotos();
+  };
+
   const reloadCurrentPhotos = async () => {
     const current = viewStateRef.current;
     if (current.searchQuery !== null) {
@@ -167,6 +205,7 @@ export default function App() {
     setArchivePathState(selected);
     setSelection({ kind: "all" });
     setFilter(EMPTY_FILTER);
+    setPhotoYears([]);
     setSearchQuery(null);
     setPhotoVersions({});
     setLightboxIndex(null);
@@ -265,6 +304,7 @@ export default function App() {
     setSearchQuery(null);
     setSelection({ kind: "importResult", photoIds });
     void refreshSidebar();
+    void refreshPhotoYears();
   };
 
   const handleRemoveSelectedFromAlbum = async () => {
@@ -327,7 +367,7 @@ export default function App() {
             onClear={() => setSearchQuery(null)}
           />
           {searchQuery === null && selection.kind === "all" && (
-            <FilterBar filter={filter} onChange={setFilter} />
+            <FilterBar filter={filter} years={photoYears} onChange={setFilter} />
           )}
         </div>
 
@@ -370,7 +410,7 @@ export default function App() {
       {showImportWizard && (
         <ImportWizard
           albums={albums}
-          onClose={() => setShowImportWizard(false)}
+          onClose={closeImportWizard}
           onImportComplete={handleImportComplete}
         />
       )}
