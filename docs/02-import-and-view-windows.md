@@ -29,10 +29,12 @@ python -m venv .venv
 
 ## 2-3. エクスポートしたデータの配置
 
-外付けドライブ（またはそこからコピーしたフォルダ）を、Windows PC上の任意の場所（Gitリポジトリの外を推奨）に用意します。
+外付けドライブ（またはそこからコピーしたフォルダ）を、Windows PC上の任意の場所（Gitリポジトリの外を推奨）に用意します。ドライブ名（`E:`等）は環境に応じて読み替えてください。
 
 - Photos.appのエクスポート先（`01-export-macos.md`の1-2で作成したフォルダ、`.osxphotos_export.db`を含む）
 - iPhotoのコピー先（1-3を実施した場合のみ。`AlbumData.xml`を含む）
+
+**`--source-a`・`--source-b`はどちらか一方だけの指定でも実行できます。** Photos.appのみ、iPhotoのみをお使いの場合は、お持ちの方だけを指定してください（両方指定することも、もちろん可能です）。少なくとも一方は指定が必須です。
 
 例:
 ```
@@ -45,6 +47,8 @@ E:\PhotoImport\
 
 ## 2-4. インポーターの実行
 
+両方のエクスポートをお持ちの場合:
+
 ```powershell
 cd importer
 .venv\Scripts\python scripts\run_import.py `
@@ -53,11 +57,28 @@ cd importer
   --archive-root "E:\PhotoArchive"
 ```
 
+Photos.app（Source A）のみをお持ちの場合:
+
+```powershell
+cd importer
+.venv\Scripts\python scripts\run_import.py `
+  --source-a "E:\PhotoImport\source_a_photos_app" `
+  --archive-root "E:\PhotoArchive"
+```
+
+iPhoto（Source B）のみをお持ちの場合:
+
+```powershell
+cd importer
+.venv\Scripts\python scripts\run_import.py `
+  --source-b "E:\PhotoImport\source_b_iphoto" `
+  --archive-root "E:\PhotoArchive"
+```
+
 - `--archive-root`に指定したフォルダに`archive.db`と整理された写真ファイルが作成されます。
 - Source A/B原本フォルダには一切書き込み・削除を行いません（実行後に自動で検証されます）。
-- 実行結果として、取り込み件数・スキップ件数・重複検出件数・アルバム統合件数がコンソールに表示されます。
-
-> **既知の制限:** 現時点では`--source-a`・`--source-b`の両方の指定が必須です。iPhotoライブラリをお持ちでない場合の単独実行対応は今後の改善課題です。
+- 実行結果として、取り込み件数・スキップ件数・重複検出件数・アルバム統合件数がコンソールに表示されます。指定しなかった側は「指定されなかったためスキップしました」と表示されます。
+- `--source-a`・`--source-b`のどちらも指定しなかった場合は、エラーメッセージを表示して終了します。
 
 ---
 

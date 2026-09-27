@@ -17,9 +17,17 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from run_import import apply_album_review, apply_dedup, import_source_a, import_source_b  # noqa: E402
+from run_import import (  # noqa: E402
+    apply_album_review,
+    apply_dedup,
+    import_source_a,
+    import_source_b,
+    main,
+)
 
 from photolibre_importer.schema import create_schema  # noqa: E402
 
@@ -163,3 +171,94 @@ def test_import_pipeline_deduplicates_and_merges_albums_end_to_end(tmp_path):
     # （read-only guaranteeそのものの詳細検証はtest_read_only_guarantee.pyで別途実施済み）
     assert (source_a_root / "2008" / "05" / "DSC0001.JPG").read_bytes() == b"UNIQUE-A1-CONTENT"
     assert (source_b_root / "2008" / "05" / "IMG_0002.jpg").read_bytes() == b"UNIQUE-B1-CONTENT"
+
+
+def test_main_runs_with_source_a_only(tmp_path, monkeypatch, capsys):
+    """TASK-417: --source-bを指定しなくても--source-aだけで実行できる。"""
+    source_a_root = tmp_path / "source_a"
+    archive_root = tmp_path / "archive"
+    _build_source_a(source_a_root)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_import.py",
+            "--source-a",
+            str(source_a_root),
+            "--archive-root",
+            str(archive_root),
+        ],
+    )
+
+    main()
+
+    conn = sqlite3.connect(archive_root / "archive.db")
+    photo_count = conn.execute("SELECT COUNT(*) FROM photos").fetchone()[0]
+    assert photo_count == 2
+    sources = {row[0] for row in conn.execute("SELECT DISTINCT source FROM photos").fetchall()}
+    assert sources == {"source_a"}
+    album_names = {row[0] for row in conn.execute("SELECT name FROM albums").fetchall()}
+    assert album_names == {"夏休み"}
+    conn.close()
+
+    captured = capsys.readouterr()
+    assert "Source Bは指定されなかったためスキップしました" in captured.out
+
+
+def test_main_runs_with_source_b_only(tmp_path, monkeypatch, capsys):
+    """TASK-417: --source-aを指定しなくても--source-bだけで実行できる。"""
+    source_b_root = tmp_path / "source_b"
+    archive_root = tmp_path / "archive"
+    _build_source_b(source_b_root)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_import.py",
+            "--source-b",
+            str(source_b_root),
+            "--archive-root",
+            str(archive_root),
+        ],
+    )
+
+    main()
+
+    conn = sqlite3.connect(archive_root / "archive.db")
+    photo_count = conn.execute("SELECT COUNT(*) FROM photos").fetchone()[0]
+    assert photo_count == 2
+    sources = {row[0] for row in conn.execute("SELECT DISTINCT source FROM photos").fetchall()}
+    assert sources == {"source_b"}
+    album_names = {row[0] for row in conn.execute("SELECT name FROM albums").fetchall()}
+    assert album_names == {"夏休み"}
+    conn.close()
+
+    captured = capsys.readouterr()
+    assert "Source Aは指定されなかったためスキップしました" in captured.out
+
+
+def test_main_requires_at_least_one_source(tmp_path, monkeypatch, capsys):
+    """TASK-417: --source-a・--source-bのどちらも指定しない場合は分かりやすいエラーで終了する。"""
+    archive_root = tmp_path / "archive"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_import.py",
+            "--archive-root",
+            str(archive_root),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert "--source-a" in captured.err
+    assert "--source-b" in captured.err
+    # archive-rootが作成されてしまっていないこと（エラー終了時に副作用を残さない）
+    assert not archive_root.exists()

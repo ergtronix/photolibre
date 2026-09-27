@@ -197,13 +197,19 @@ def apply_album_review(conn: sqlite3.Connection, source_a_album_names: list[str]
 
 def main():
     parser = argparse.ArgumentParser(description="Source A/B実データをarchive.dbへ統合する")
-    parser.add_argument("--source-a", type=Path, required=True)
-    parser.add_argument("--source-b", type=Path, required=True)
+    parser.add_argument("--source-a", type=Path, required=False, default=None)
+    parser.add_argument("--source-b", type=Path, required=False, default=None)
     parser.add_argument("--archive-root", type=Path, required=True)
     args = parser.parse_args()
 
-    before_a = snapshot_tree(args.source_a)
-    before_b = snapshot_tree(args.source_b)
+    if args.source_a is None and args.source_b is None:
+        parser.error(
+            "--source-aまたは--source-bの少なくとも一方を指定してください"
+            "（両方指定することも可能です）。"
+        )
+
+    before_a = snapshot_tree(args.source_a) if args.source_a is not None else None
+    before_b = snapshot_tree(args.source_b) if args.source_b is not None else None
 
     args.archive_root.mkdir(parents=True, exist_ok=True)
     db_path = args.archive_root / "archive.db"
@@ -213,19 +219,27 @@ def main():
 
     imported_at = datetime.now(timezone.utc).isoformat()
 
-    print("=== Source A 取り込み中 ===")
-    path_to_id_a, skipped_a = import_source_a(args.source_a, args.archive_root, conn, imported_at)
-    print(f"Source A: {len(path_to_id_a)}件取り込み、{len(skipped_a)}件スキップ")
+    if args.source_a is not None:
+        print("=== Source A 取り込み中 ===")
+        path_to_id_a, skipped_a = import_source_a(args.source_a, args.archive_root, conn, imported_at)
+        print(f"Source A: {len(path_to_id_a)}件取り込み、{len(skipped_a)}件スキップ")
+    else:
+        path_to_id_a, skipped_a = {}, []
+        print("Source Aは指定されなかったためスキップしました。")
 
-    print("=== Source B 取り込み中 ===")
-    path_to_id_b, skipped_b, source_b_album_names, fallback_used = import_source_b(
-        args.source_b, args.archive_root, conn, imported_at
-    )
-    print(f"Source B: {len(path_to_id_b)}件取り込み、{len(skipped_b)}件スキップ")
-    print(
-        f"Source B: うち{len(fallback_used)}件はiPhoto内で編集済み(Modified/)のため、"
-        f"未編集オリジナル(OriginalPath)で代用（Modified/自体はUSBコピー対象外だったため）"
-    )
+    if args.source_b is not None:
+        print("=== Source B 取り込み中 ===")
+        path_to_id_b, skipped_b, source_b_album_names, fallback_used = import_source_b(
+            args.source_b, args.archive_root, conn, imported_at
+        )
+        print(f"Source B: {len(path_to_id_b)}件取り込み、{len(skipped_b)}件スキップ")
+        print(
+            f"Source B: うち{len(fallback_used)}件はiPhoto内で編集済み(Modified/)のため、"
+            f"未編集オリジナル(OriginalPath)で代用（Modified/自体はUSBコピー対象外だったため）"
+        )
+    else:
+        path_to_id_b, skipped_b, source_b_album_names, fallback_used = {}, [], [], []
+        print("Source Bは指定されなかったためスキップしました。")
 
     path_to_photo_id = {**path_to_id_a, **path_to_id_b}
 
@@ -251,9 +265,11 @@ def main():
     conn.close()
 
     print("=== 読み取り専用の検証 ===")
-    assert_tree_unchanged(args.source_a, before_a)
-    assert_tree_unchanged(args.source_b, before_b)
-    print("Source A/B原本は変更されていません。")
+    if args.source_a is not None:
+        assert_tree_unchanged(args.source_a, before_a)
+    if args.source_b is not None:
+        assert_tree_unchanged(args.source_b, before_b)
+    print("指定されたSource原本は変更されていません。")
 
     if skipped_a:
         print(f"\n[Source Aスキップ一覧（先頭10件）]")
