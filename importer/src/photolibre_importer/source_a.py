@@ -90,7 +90,7 @@ def parse_source_a_photo(
 
 
 def _readonly_connection(db_path: Path) -> sqlite3.Connection:
-    uri = f"file:{Path(db_path).as_posix()}?mode=ro"
+    uri = f"file:{Path(db_path).as_posix()}?mode=ro&immutable=1"
     return sqlite3.connect(uri, uri=True)
 
 

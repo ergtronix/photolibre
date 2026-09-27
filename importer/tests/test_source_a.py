@@ -156,3 +156,49 @@ def test_read_photoinfo_records_does_not_modify_source_db(tmp_path):
 
     after = db_path.read_bytes()
     assert before == after  # 読み取り専用であること
+
+
+def _build_wal_mode_sample_db(db_path: Path) -> None:
+    import json
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE photoinfo (id INTEGER PRIMARY KEY, uuid TEXT, photoinfo JSON)")
+    conn.execute("CREATE TABLE export_data (id INTEGER PRIMARY KEY, uuid TEXT, filepath TEXT)")
+    conn.execute(
+        "INSERT INTO photoinfo (uuid, photoinfo) VALUES (?, ?)",
+        (SAMPLE_PHOTOINFO["uuid"], json.dumps(SAMPLE_PHOTOINFO)),
+    )
+    conn.execute(
+        "INSERT INTO export_data (uuid, filepath) VALUES (?, ?)",
+        (SAMPLE_PHOTOINFO["uuid"], "2006-06/DSC01407.JPG"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_read_photoinfo_records_does_not_create_wal_or_shm_files_for_wal_mode_db(tmp_path):
+    """WALモードのDBを読み取り専用で開いた際に、-shm/-wal補助ファイルを新規生成しないこと。
+
+    実際のosxphotosエクスポートDBはWALモードで作成されており、
+    ERGのLinuxMint実機での実データテストで、mode=roのみの読み取り専用接続では
+    このケースで補助ファイルが新規作成されてしまうバグが判明した。
+    """
+    db_path = tmp_path / ".osxphotos_export.db"
+    _build_wal_mode_sample_db(db_path)
+
+    # ライター接続を正常にクローズした直後の状態（-shm/-walが存在しない状態）から検証する
+    before_files = sorted(p.name for p in tmp_path.iterdir())
+    assert before_files == [".osxphotos_export.db"], (
+        "前提条件が崩れている: ライタークローズ後に-shm/-walが残存していないことを想定している。"
+        f" 実際のファイル一覧: {before_files}"
+    )
+
+    read_photoinfo_records(db_path)
+    read_export_paths(db_path)
+
+    after_files = sorted(p.name for p in tmp_path.iterdir())
+    assert after_files == before_files, (
+        "読み取り専用のはずの操作でファイルが新規生成された（-shm/-wal等）。"
+        f" 前: {before_files} / 後: {after_files}"
+    )
