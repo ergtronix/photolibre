@@ -2,7 +2,13 @@
 
 photolibreの、版ごとの主な変更点です。書式は[Keep a Changelog](https://keepachangelog.com/ja/1.1.0/)に近い簡潔なものにしています。
 
-## [0.3.0] - 未公開
+## [Unreleased]
+
+### 変更
+
+- インポーター（`importer/`）が、Photos.app（Source A）・iPhoto（Source B）のどちらか一方のみでも実行できるようになりました。両方をお持ちの場合は、引き続き両方を指定して統合できます。
+
+## [0.3.0] - 2026-09-27
 
 ### 追加
 
