@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PhotoLibre",
-  "version": "0.3.1",
-  "identifier": "com.photolibre.viewer",
+  "productName": "Photolibre",
+  "version": "0.3.2",
+  "identifier": "com.ergtronix.photolibre",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PhotoLibre",
+        "title": "Photolibre",
         "width": 800,
         "height": 600,
         "dragDropEnabled": false
@@ -25,6 +25,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "ergtronix",
+    "shortDescription": "Apple写真から書き出した写真・動画を、自分のファイルとして閲覧・管理するデスクトップアプリ",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
