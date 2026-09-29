@@ -56,6 +56,32 @@ button:hover {
   border-color: #396cd8;
 }
 
+/* selectはappearance: noneでOSネイティブの矢印が消えるため、代わりにCSSで
+   カスタム矢印を描画する。Linux(WebKitGTK)ではappearance: noneを指定しない限り
+   selectがOSネイティブウィジェットとして描画され、ダークモードのcolor/
+   background-color指定が無視されてしまうため必須（TASK-439）。
+   radio/checkbox/text等の他のinputタイプに影響しないよう、select要素のみに
+   限定する（ラジオボタン・テキスト入力が操作不能になる回帰を招いたため）。 */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2rem;
+  background-repeat: no-repeat;
+  background-position: right 0.7em center;
+  background-size: 10px 6px;
+  /* 矢印色は濃色（ライトモード用）。data URI内のfillカラーは#0f0f0fを
+     URLエンコードしたもの。 */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%230f0f0f' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+}
+
+/* <option>はLinux上ではブラウザ/OS依存でCSS制御に制約があることが知られているが、
+   可能な範囲で明示指定する（TASK-439）。 */
+select option {
+  background-color: #ffffff;
+  color: #0f0f0f;
+}
+
 /* --- App shell --- */
 
 .app-loading {
@@ -634,6 +660,17 @@ button:hover {
     color: #ffffff;
     background-color: #2a2a2a;
     border-color: #444;
+  }
+
+  /* ダークモード用の明るい矢印色（#ffffff）に差し替え。appearance: noneが
+     ベースルールで効いているため、ここではbackground-imageの色だけ上書きする。 */
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+  }
+
+  select option {
+    background-color: #2a2a2a;
+    color: #ffffff;
   }
 
   .app__sidebar {
