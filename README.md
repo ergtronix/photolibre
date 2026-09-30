@@ -12,7 +12,7 @@ PhotoLibreは、Apple Photos/iPhotoの独自仕様から写真を解放し、オ
 
 PhotoLibreは現在も開発を続けているプロジェクトですが、iMacからの写真の書き出しから、Windows上での閲覧・整理、デジタルカメラ・SDカード・スマホからの直接取り込みまで、一通りの流れはすでに動作します（各機能の詳細は次の「主な機能」を参照してください）。
 
-開発者自身が実際に持っている写真——Photos.app（Source A）3,545枚、iPhoto（Source B、1998〜2016年分を含む）2,990枚、合計6,535件——を使って、書き出しから閲覧までの動作を確認済みです。Windows用のインストーラー（`.exe`）は[Releases](https://github.com/ergtronix/photolibre/releases/latest)から配布しています。
+開発者自身が実際に持っている写真——Photos.app（Source A）3,545枚、iPhoto（Source B、1998〜2016年分を含む）2,990枚、合計6,535件——を使って、書き出しから閲覧までの動作を確認済みです。Windows用の`.exe`、Linux用の`.deb`/`.rpm`インストーラーは[Releases](https://github.com/ergtronix/photolibre/releases/latest)から配布しています。
 
 ---
 
@@ -84,7 +84,7 @@ PhotoLibreは現在も開発を続けているプロジェクトですが、iMac
 ## セットアップ・使い方
 
 1. [iMac（macOS）側: 写真ライブラリのエクスポート](docs/01-export-macos.md)
-2. [Windows側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)（PhotoLibreアプリは[Releasesページ](https://github.com/ergtronix/photolibre/releases/latest)からインストーラーをダウンロードするだけで導入できます）
+2. [Windows側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)（PhotoLibreアプリは[Releasesページ](https://github.com/ergtronix/photolibre/releases/latest)からWindows（`.exe`）・Linux（`.deb`/`.rpm`）それぞれのインストーラーをダウンロードするだけで導入できます）
 
 ---
 
@@ -99,11 +99,34 @@ PhotoLibreは現在も開発を続けているプロジェクトですが、iMac
 
 ---
 
+## Linux版のインストールについて
+
+Linux用インストーラーも、Windows版と同様にコード署名を行っていない未署名パッケージです。そのため、インストール時にGPG検証の警告が表示される場合がありますが、動作に支障はありません。
+
+**`.deb`（Debian/Ubuntu/Linux Mint系）**
+
+```
+sudo dpkg -i Photolibre_0.3.2_amd64.deb
+```
+
+**`.rpm`（Fedora/RHEL系）**
+
+```
+sudo rpm -i Photolibre-0.3.2-1.x86_64.rpm
+```
+
+または
+
+```
+sudo dnf install Photolibre-0.3.2-1.x86_64.rpm
+```
+
+---
+
 ## 今後の予定
 
 PhotoLibreは現在も開発を続けているオープンソースプロジェクトです。今のところ、次のような拡張を検討していますが、着手の時期は未定です。
 
-- **Linux版への対応**: Windows・Linuxなど複数の環境で自由に使えるようにすることは、当初からの目標の一つです。着手の順序はまだ検討中です。
 - **iPhoneの標準形式（HEIC）や、各社のRAW形式への対応**: デジタルカメラ・SDカード・スマホからの取り込み機能は、現在この2つの形式に対応していません（詳しくは[Windows側ドキュメント](docs/02-import-and-view-windows.md)の「対応していない形式」を参照）。対応するデコードライブラリの追加を検討しています。
 - **閲覧アプリ単体でのアーカイブ新規作成**: 現在、写真アーカイブの最初の作成にはPythonのインポーター（`importer/`）の実行が必要です。将来的には、この最初のセットアップの手間を減らしていきたいと考えています。
 
