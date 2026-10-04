@@ -165,6 +165,8 @@ v0.3.0からアプリの名前が「viewer」から「PhotoLibre」に変わり�
 
 ### インストール
 
+画面やメニューに表示されるアプリ名は「Photolibre」です（本書で「PhotoLibre」と書いているアプリと同じものです）。
+
 **Windows:**
 
 1. [https://github.com/ergtronix/photolibre/releases/latest](https://github.com/ergtronix/photolibre/releases/latest)を開き、インストーラー`Photolibre_0.3.2_x64-setup.exe`（末尾の版番号は読み替えてください。最新版をダウンロードしてください）をダウンロードします。
@@ -173,23 +175,23 @@ v0.3.0からアプリの名前が「viewer」から「PhotoLibre」に変わり�
    - 管理者権限は不要です（お使いのユーザーだけにインストールされます）。
 3. **インストーラーの画面は英語です。** 次の順に画面が表示されるので、案内に従って進めてください。
 
-   1. 「Welcome to PhotoLibre Setup」: [Next >]をクリックします。
-      <!-- スクリーンショット: Welcome to PhotoLibre Setup -->
-   2. 「Already Installed」（「Choose how you want to install PhotoLibre」）: **PhotoLibreがすでに入っている場合にだけ**表示されます。古い版が入っている場合は、「Uninstall before installing」（初期選択）と「Do not uninstall」（上書きインストール）のどちらかを選ぶ画面です。画面の案内に従って選んでください。すでに同じ版のPhotoLibreが入っている場合は、選択肢が「Add/Reinstall components」（初期選択）と「Uninstall PhotoLibre」になります。入れ直すだけの場合は、「Add/Reinstall components」のまま進めてください（「Uninstall PhotoLibre」を選ぶとアンインストールされます）。
+   1. 「Welcome to Photolibre Setup」: [Next >]をクリックします。
+      <!-- スクリーンショット: Welcome to Photolibre Setup -->
+   2. 「Already Installed」（「Choose how you want to install Photolibre」）: **PhotoLibreがすでに入っている場合にだけ**表示されます。古い版が入っている場合は、「Uninstall before installing」（初期選択）と「Do not uninstall」（上書きインストール）のどちらかを選ぶ画面です。画面の案内に従って選んでください。すでに同じ版のPhotoLibreが入っている場合は、選択肢が「Add/Reinstall components」（初期選択）と「Uninstall Photolibre」になります。入れ直すだけの場合は、「Add/Reinstall components」のまま進めてください（「Uninstall Photolibre」を選ぶとアンインストールされます）。
       <!-- スクリーンショット: Already Installed -->
-   3. 「Choose Install Location」: インストール先を選ぶ画面です。初期値は`C:\Users\<あなたのユーザー名>\AppData\Local\PhotoLibre`で、必要な容量は約17MBです。通常は、そのままで構いません。
+   3. 「Choose Install Location」: インストール先を選ぶ画面です。初期値は`C:\Users\<あなたのユーザー名>\AppData\Local\Photolibre`で、必要な容量は約17MBです。通常は、そのままで構いません。
       <!-- スクリーンショット: Choose Install Location -->
    4. 「Installing」: インストールの進捗が表示されます。
       <!-- スクリーンショット: Installing -->
    5. 「Installation Complete」: [Next >]をクリックします。
       <!-- スクリーンショット: Installation Complete -->
-   6. 「Completing PhotoLibre Setup」: 「Run PhotoLibre」（今すぐPhotoLibreを起動する）のチェックはそのままにしておくと、[Finish]で起動します。「Create desktop shortcut」（デスクトップにショートカットを作る）は、ショートカットが必要かどうかに合わせて、チェックを入れる／外してから、[Finish]をクリックします。
-      <!-- スクリーンショット: Completing PhotoLibre Setup -->
+   6. 「Completing Photolibre Setup」: 「Run Photolibre」（今すぐPhotoLibreを起動する）のチェックはそのままにしておくと、[Finish]で起動します。「Create desktop shortcut」（デスクトップにショートカットを作る）は、ショートカットが必要かどうかに合わせて、チェックを入れる／外してから、[Finish]をクリックします。
+      <!-- スクリーンショット: Completing Photolibre Setup -->
 
-   > PhotoLibreが起動したままインストールを始めると、「PhotoLibre is running! Click OK to kill it」と表示されます。[OK]をクリックするとPhotoLibreが終了し、インストールが続きます。あらかじめPhotoLibreを閉じておくと確実です。
+   > PhotoLibreが起動したままインストールを始めると、「Photolibre is running! Click OK to kill it」と表示されます。[OK]をクリックするとPhotoLibreが終了し、インストールが続きます。あらかじめPhotoLibreを閉じておくと確実です。
 
-4. インストール完了後は、スタートメニューの「PhotoLibre」から起動します（「Create desktop shortcut」にチェックを入れた場合は、デスクトップのショートカットからも起動できます）。
-   - インストール先のフォルダを開きたい場合は、スタートメニューの「PhotoLibre」を右クリックして「ファイルの場所を開く」を選びます。
+4. インストール完了後は、スタートメニューの「Photolibre」から起動します（「Create desktop shortcut」にチェックを入れた場合は、デスクトップのショートカットからも起動できます）。
+   - インストール先のフォルダを開きたい場合は、スタートメニューの「Photolibre」を右クリックして「ファイルの場所を開く」を選びます。
 
 **Linux:**
 
@@ -272,7 +274,7 @@ sudo dnf install Photolibre-0.3.2-1.x86_64.rpm
 
 **Windows:**
 
-「設定」→「アプリ」→「インストールされているアプリ」→「PhotoLibre」→「アンインストール」を実行します。
+「設定」→「アプリ」→「インストールされているアプリ」→「Photolibre」→「アンインストール」を実行します。
 
 途中の画面に「Delete the application data」というチェック項目があります。チェックを入れてアンインストールすると、アーカイブフォルダの場所の設定など、PhotoLibreがお使いのユーザー領域に保存しているデータが削除されます。**写真のアーカイブは削除されません**（アーカイブは、アプリの外の、ご自身で選んだフォルダに保存されているためです）。
 
