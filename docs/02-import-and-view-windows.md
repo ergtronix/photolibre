@@ -1,16 +1,21 @@
-# 2. Windows側: インポートとビュワーでの閲覧
+# 2. Windows・Linux側: インポートとビュワーでの閲覧
 
-macOS側でエクスポートした写真データ（[01-export-macos.md](01-export-macos.md)参照）を、Windows上でarchive.dbへ統合し、PhotoLibreアプリで閲覧します。
+macOS側でエクスポートした写真データ（[01-export-macos.md](01-export-macos.md)参照）を、WindowsまたはLinuxの上でarchive.dbへ統合し、PhotoLibreアプリで閲覧します。以降の手順はWindows・Linuxのどちらの環境でも、ほぼ同じ流れで進められます。
 
 前提: [Python 3.11+](https://www.python.org/downloads/)がインストール済みであること（インポーターの実行に必要です）。閲覧アプリ「PhotoLibre」はインストーラーをダウンロードして実行するだけなので、Node.js・Rustのインストールは不要です（ソースからビルドしたい開発者向けの手順は、本ページ末尾の「開発者向け: ソースからビルドする」を参照してください）。
 
-以降のコマンドは、すべて**Windows PowerShell**で実行します。スタートメニューで「PowerShell」と検索して起動してください（「Windows Terminal」でも構いません。コマンドプロンプト(cmd.exe)ではありません）。
+**実行環境**
+
+- **Windows**: 以降のコマンドは、すべてPowerShellで実行します。スタートメニューで「PowerShell」と検索して起動してください（「Windows Terminal」でも構いません。コマンドプロンプト(cmd.exe)ではありません）。
+- **Linux**: 以降のコマンドは、すべて端末（ターミナル）で実行します。
 
 ---
 
 ## 2-1. リポジトリの取得
 
-```powershell
+このコマンドはWindows・Linuxで共通です。
+
+```bash
 git clone https://github.com/ergtronix/photolibre.git
 cd photolibre
 ```
@@ -19,33 +24,61 @@ cd photolibre
 
 ## 2-2. インポーターのセットアップ
 
+**Windows:**
+
 ```powershell
 cd importer
 python -m venv .venv
 .venv\Scripts\pip install -e .
 ```
 
+**Linux:**
+
+```bash
+cd importer
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+`python3 -m venv .venv` が、venvを利用できないという内容のエラーで止まる場合は、`sudo apt install python3-venv` を実行してから、もう一度お試しください（Debian/Ubuntu/Linux Mint系）。
+
 ---
 
 ## 2-3. エクスポートしたデータの配置
 
-外付けドライブ（またはそこからコピーしたフォルダ）を、Windows PC上の任意の場所（Gitリポジトリの外を推奨）に用意します。ドライブ名（`E:`等）は環境に応じて読み替えてください。
+外付けドライブ（またはそこからコピーしたフォルダ）を、PC上の任意の場所（Gitリポジトリの外を推奨）に用意します。
 
 - Photos.appのエクスポート先（`01-export-macos.md`の1-2で作成したフォルダ、`.osxphotos_export.db`を含む）
 - iPhotoのコピー先（1-3を実施した場合のみ。`AlbumData.xml`を含む）
 
 **`--source-a`・`--source-b`はどちらか一方だけの指定でも実行できます。** Photos.appのみ、iPhotoのみをお使いの場合は、お持ちの方だけを指定してください（両方指定することも、もちろん可能です）。少なくとも一方は指定が必須です。
 
-例:
+**Windows:**
+
+ドライブ名（`E:`等）は環境に応じて読み替えてください。
+
 ```
 E:\PhotoImport\
 ├── source_a_photos_app\   ← Photos.appのエクスポート先
 └── source_b_iphoto\       ← iPhotoのコピー先（iPhotoをお使いの場合のみ）
 ```
 
+**Linux:**
+
+ホームフォルダ（`~`）配下に配置する例:
+
+```
+~/PhotoImport/
+├── source_a_photos_app/   ← Photos.appのエクスポート先
+└── source_b_iphoto/       ← iPhotoのコピー先（iPhotoをお使いの場合のみ）
+```
+
 ---
 
 ## 2-4. インポーターの実行
+
+**Windows:**
 
 両方のエクスポートをお持ちの場合:
 
@@ -75,6 +108,43 @@ cd importer
   --archive-root "E:\PhotoArchive"
 ```
 
+**Linux:**
+
+仮想環境を有効にしてから実行します。
+
+両方のエクスポートをお持ちの場合:
+
+```bash
+cd importer
+source .venv/bin/activate
+python scripts/run_import.py \
+  --source-a ~/PhotoImport/source_a_photos_app \
+  --source-b ~/PhotoImport/source_b_iphoto \
+  --archive-root ~/PhotoArchive
+```
+
+Photos.app（Source A）のみをお持ちの場合:
+
+```bash
+cd importer
+source .venv/bin/activate
+python scripts/run_import.py \
+  --source-a ~/PhotoImport/source_a_photos_app \
+  --archive-root ~/PhotoArchive
+```
+
+iPhoto（Source B）のみをお持ちの場合:
+
+```bash
+cd importer
+source .venv/bin/activate
+python scripts/run_import.py \
+  --source-b ~/PhotoImport/source_b_iphoto \
+  --archive-root ~/PhotoArchive
+```
+
+**共通事項:**
+
 - `--archive-root`に指定したフォルダに`archive.db`と整理された写真ファイルが作成されます。
 - Source A/B原本フォルダには一切書き込み・削除を行いません（実行後に自動で検証されます）。
 - 実行結果として、取り込み件数・スキップ件数・重複検出件数・アルバム統合件数がコンソールに表示されます。指定しなかった側は「指定されなかったためスキップしました」と表示されます。
@@ -84,16 +154,20 @@ cd importer
 
 ## 2-5. PhotoLibreのインストールと起動
 
-### 旧版（v0.2.0、アプリ名「viewer」）をお使いの方へ
+### 旧版（v0.2.0、アプリ名「viewer」）をお使いの方へ（Windowsのみ）
 
 v0.3.0からアプリの名前が「viewer」から「PhotoLibre」に変わりました。名前が変わったため、PhotoLibreは旧版とは**別のアプリ**としてインストールされます。**先に、旧版の「viewer」をアンインストールしてください。**「設定」→「アプリ」→「インストールされているアプリ」から「viewer」を選び、「アンインストール」を実行します。
 
 - アーカイブフォルダの場所の設定は旧版と同じ場所に保存されるため、PhotoLibreがそのまま引き継ぎます。
 - 旧版のアンインストール中に「Delete the application data」というチェック項目が表示されます。**ここにはチェックを入れないでください**（チェックを入れると、引き継がれるはずのアーカイブフォルダの場所の設定が消え、PhotoLibreの初回起動時にもう一度フォルダを選ぶことになります）。
 
+（Linux版はv0.3.2が最初の公開版のため、旧版からの移行は必要ありません）
+
 ### インストール
 
-1. [https://github.com/ergtronix/photolibre/releases/latest](https://github.com/ergtronix/photolibre/releases/latest)を開き、インストーラー`PhotoLibre_0.3.0_x64-setup.exe`（`0.3.0`の部分は版番号です。最新版をダウンロードしてください）をダウンロードします。
+**Windows:**
+
+1. [https://github.com/ergtronix/photolibre/releases/latest](https://github.com/ergtronix/photolibre/releases/latest)を開き、インストーラー`Photolibre_0.3.2_x64-setup.exe`（末尾の版番号は読み替えてください。最新版をダウンロードしてください）をダウンロードします。
 2. ダウンロードしたファイルをダブルクリックして実行します。
    - 初回実行時にWindows SmartScreen（「Windows によって PC が保護されました」）が警告を表示することがあります。未署名の無料OSSアプリであることによる既知の挙動です。対処法は[README.mdの「Windows SmartScreenの警告について」](../README.md#windows-smartscreenの警告について)を参照してください。
    - 管理者権限は不要です（お使いのユーザーだけにインストールされます）。
@@ -117,23 +191,104 @@ v0.3.0からアプリの名前が「viewer」から「PhotoLibre」に変わり�
 4. インストール完了後は、スタートメニューの「PhotoLibre」から起動します（「Create desktop shortcut」にチェックを入れた場合は、デスクトップのショートカットからも起動できます）。
    - インストール先のフォルダを開きたい場合は、スタートメニューの「PhotoLibre」を右クリックして「ファイルの場所を開く」を選びます。
 
+**Linux:**
+
+1. [https://github.com/ergtronix/photolibre/releases/latest](https://github.com/ergtronix/photolibre/releases/latest)を開き、以下のいずれかのインストーラーをダウンロードしてください（末尾の版番号は読み替えてください）。
+   - **Debian/Ubuntu/Linux Mint系**: `Photolibre_0.3.2_amd64.deb`
+   - **Fedora/RHEL系**: `Photolibre-0.3.2-1.x86_64.rpm`
+
+2. インストーラーを実行します。
+
+   **Debian系（Linux Mint含む）の場合:**
+
+   コマンドラインからインストール:
+   ```bash
+   sudo dpkg -i Photolibre_0.3.2_amd64.deb
+   ```
+
+   または、ファイルマネージャーから`Photolibre_0.3.2_amd64.deb`をダブルクリックして、画面の案内に従ってインストールできます。
+
+   **Fedora系の場合:**
+
+   ```bash
+   sudo rpm -i Photolibre-0.3.2-1.x86_64.rpm
+   ```
+
+   または
+
+   ```bash
+   sudo dnf install Photolibre-0.3.2-1.x86_64.rpm
+   ```
+
+   初回インストール時にGPG検証の警告が表示される場合がありますが、動作に支障はありません。詳細は[README.mdの「Linux版のインストールについて」](../README.md#linux版のインストールについて)を参照してください。
+
+   `.deb`はLinux Mint 22.2の実機で、`.rpm`はFedoraのコンテナ内で、インストールと起動を確認しています。
+
 ### 初回起動
 
-初回起動時に「フォルダを選択」画面が表示されるので、2-4で指定した`--archive-root`のフォルダ（例: `E:\PhotoArchive`）を選択してください（すでにアーカイブフォルダの設定が残っている場合は、この画面は表示されず、そのまま写真一覧が表示されます）。以降は自動的にこのフォルダが記憶され、次回起動時からはそのまま写真一覧が表示されます。
+**Linux での起動:**
+
+インストール後、メニューから「Photolibre」を検索して起動するか、端末から以下を実行してください:
+
+```bash
+photolibre
+```
+
+**共通の説明:**
+
+初回起動時に「フォルダを選択」画面が表示されるので、2-4で指定した`--archive-root`のフォルダ（例: Windowsは `E:\PhotoArchive`、Linuxは `~/PhotoArchive`）を選択してください（すでにアーカイブフォルダの設定が残っている場合は、この画面は表示されず、そのまま写真一覧が表示されます）。以降は自動的にこのフォルダが記憶され、次回起動時からはそのまま写真一覧が表示されます。
 
 別のアーカイブフォルダに切り替えたい場合は、アプリ左上の「アーカイブフォルダを変更」から再選択できます。
 
 PhotoLibreを起動した状態で、もう一度起動しようとすると、新しいウィンドウは開かず、起動中の画面が前面に表示されます（二重起動防止）。
 
+**Linux での補足:**
+
+フォルダ選択画面の決定ボタンが「開く」と表示されます（Windowsでは「フォルダーの選択」）。
+
 ### 更新（新しい版へ）
+
+**Windows:**
 
 新しい版のインストーラーを実行するだけで更新できます。アーカイブフォルダの場所の設定は、そのまま残ります。
 
+**Linux:**
+
+新しい版のインストーラー（`.deb`または`.rpm`）を実行するだけで更新できます。アーカイブフォルダの場所の設定は、そのまま残ります。
+
+```bash
+# Debian系の場合
+sudo dpkg -i Photolibre_0.3.2_amd64.deb
+
+# Fedora系の場合
+sudo rpm -U Photolibre-0.3.2-1.x86_64.rpm
+# または
+sudo dnf install Photolibre-0.3.2-1.x86_64.rpm
+```
+
+（ファイル名の版番号は、ダウンロードした版に読み替えてください）
+
 ### アンインストール
+
+**Windows:**
 
 「設定」→「アプリ」→「インストールされているアプリ」→「PhotoLibre」→「アンインストール」を実行します。
 
 途中の画面に「Delete the application data」というチェック項目があります。チェックを入れてアンインストールすると、アーカイブフォルダの場所の設定など、PhotoLibreがお使いのユーザー領域に保存しているデータが削除されます。**写真のアーカイブは削除されません**（アーカイブは、アプリの外の、ご自身で選んだフォルダに保存されているためです）。
+
+**Linux:**
+
+```bash
+# Debian系の場合
+sudo dpkg -r photolibre
+
+# Fedora系の場合
+sudo rpm -e photolibre
+# または
+sudo dnf remove photolibre
+```
+
+アーカイブフォルダの場所の設定（`~/.config/com.ergtronix.photolibre/`に保存されています）は、アンインストールしても残ります。**写真のアーカイブも削除されません**（アーカイブは、アプリの外の、ご自身で選んだフォルダに保存されているためです）。
 
 ---
 
@@ -145,9 +300,10 @@ PhotoLibreを起動した状態で、もう一度起動しようとすると、�
 
 1. PhotoLibreのサイドバーにある「写真を取り込む」ボタンをクリックします。
 2. 「写真を取り込む」画面に、「次の画面は、Windows標準のフォルダ選択画面です。中の写真は表示されません。フォルダを選ぶと、次の画面で写真の一覧を確認できます。」という案内文が表示されます。内容を確認したら「フォルダを選択」をクリックします。
-3. Windows標準のフォルダ選択画面が開くので、取り込みたい写真/動画が入っているフォルダを指定します。
-   - デジタルカメラ・SDカードの場合は、SDカードをPCに挿してエクスプローラーで見えるフォルダ（例: `DCIM`配下）をそのまま指定できます。
-   - **スマホの場合は、あらかじめWindowsのフォトアプリ/エクスプローラーで任意のフォルダにコピーしてから、そのフォルダを指定してください。** スマホをUSB接続したまま直接デバイス内を読み取る方式には対応していません。
+   - Linuxでも同じ案内文が表示されますが、実際に開くのはLinuxのフォルダ選択画面（OS標準）です。
+3. フォルダ選択画面が開くので、取り込みたい写真/動画が入っているフォルダを指定します。
+   - デジタルカメラ・SDカードの場合は、SDカードをPCに挿してエクスプローラー（Linuxではファイルマネージャー）で見えるフォルダ（例: `DCIM`配下）をそのまま指定できます。
+   - **スマホの場合は、あらかじめWindowsのフォトアプリ/エクスプローラー（Linuxではファイルマネージャー）で任意のフォルダにコピーしてから、そのフォルダを指定してください。** スマホをUSB接続したまま直接デバイス内を読み取る方式には対応していません。
 4. フォルダの走査が終わると、プレビュー画面に新規・重複・非対応形式・読み込みエラーの件数と、サムネイル付きの一覧が表示されます。取り込みたいファイルにチェックが入っていることを確認してください（新規ファイルは自動で選択済み、重複と判定されたファイルは自動で選択解除されています）。
 5. 必要であれば「取り込み先アルバム」で新規アルバムの作成、または既存アルバムへの追加を選びます。
 6. 「〇件を取り込む」を実行すると、選択したファイルがアーカイブへコピーされ、`archive.db`に登録されます。**この操作は取り消せません**（Ctrl+Zでの取り消しには対応していません）。完了後の画面で「取り込んだ写真を見る」「閉じる」のどちらを選んでも、新しく取り込んだ写真や、追加・作成したアルバムは、サイドバーと写真一覧にすぐ反映されます。
@@ -155,7 +311,7 @@ PhotoLibreを起動した状態で、もう一度起動しようとすると、�
 ### 対応していない形式（既知の制限）
 
 - **`.heic`/`.heif`（iPhoneの既定の写真形式）、および各社のRAW形式（`.cr2`/`.nef`/`.dng`/`.arw`等）はv1では非対応です。** PhotoLibreが内部で使っている画像デコードライブラリ（`image`クレート）がこれらの形式のデコーダを持たないためで、拡張子の見落としではなく構造的な制約です。取り込みプレビューの「非対応形式のためスキップ」件数として表示されますが、コピーもDB登録もされません。
-  - iPhoneでこの機能を使いたい場合は、iPhone側のカメラ設定を「互換性優先」（`.heic`ではなく`.jpg`で保存）に変更してから撮影するか、Windowsの「フォト」アプリ等で事前にJPEGへ変換してからフォルダにコピーしてください。
+  - iPhoneでこの機能を使いたい場合は、iPhone側のカメラ設定を「互換性優先」（`.heic`ではなく`.jpg`で保存）に変更してから撮影するか、Windowsの「フォト」アプリ等（Linuxでは画像変換のできるアプリ）で事前にJPEGへ変換してからフォルダにコピーしてください。
   - 将来的にHEIC対応クレートを追加する形での改善を検討していますが、現時点では未対応です。
 - 拡張子の無いファイル・写真/動画と無関係なファイル（`Thumbs.db`等）は、エラーや警告なしに単純に無視されます。
 
@@ -173,19 +329,30 @@ PhotoLibreを起動した状態で、もう一度起動しようとすると、�
 
 エンドユーザーはインストーラーをダウンロードするだけで利用できます。以下はコントリビューター・開発者向けの、ソースからビルドする手順です。
 
-前提: [Node.js](https://nodejs.org/)・[Rust](https://www.rust-lang.org/tools/install)・MSVC Build Tools（Windows）がインストール済みであること。
+**前提:**
 
-```powershell
+- [Node.js](https://nodejs.org/)・[Rust](https://www.rust-lang.org/tools/install)
+- **Windows**: MSVC Build Tools
+- **Linux**: [Tauri公式の前提条件](https://v2.tauri.app/start/prerequisites/)（ディストリビューション別）
+
+**ビルド（Windows・Linux共通）:**
+
+```bash
 git clone https://github.com/ergtronix/photolibre.git
 cd photolibre/viewer
 npm install
 npm run tauri build
 ```
 
-ビルドが成功すると、`viewer/src-tauri/target/release/bundle/`配下にインストーラーが生成されます（NSIS: `nsis/*.exe`、MSI: `msi/*.msi`）。
+ビルドが成功すると、インストーラーが生成されます:
+- **Windows**: `viewer/src-tauri/target/release/bundle/`配下（NSIS: `nsis/*.exe`、MSI: `msi/*.msi`）
+- **Debian系**: `viewer/src-tauri/target/release/bundle/deb/*.deb`
+- **Fedora/RHEL系**: `viewer/src-tauri/target/release/bundle/rpm/*.rpm`
+
+**開発サーバーでの動作確認（Windows・Linux共通）:**
 
 インストーラーを都度ビルドせず、開発サーバーで素早く動作確認したい場合は以下も使えます。
 
-```powershell
+```bash
 npm run tauri dev
 ```

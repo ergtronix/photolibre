@@ -84,7 +84,7 @@ PhotoLibreは現在も開発を続けているプロジェクトですが、iMac
 ## セットアップ・使い方
 
 1. [iMac（macOS）側: 写真ライブラリのエクスポート](docs/01-export-macos.md)
-2. [Windows側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)（PhotoLibreアプリは[Releasesページ](https://github.com/ergtronix/photolibre/releases/latest)からWindows（`.exe`）・Linux（`.deb`/`.rpm`）それぞれのインストーラーをダウンロードするだけで導入できます）
+2. [Windows・Linux側: インポートとビュワーでの閲覧](docs/02-import-and-view-windows.md)（PhotoLibreアプリは[Releasesページ](https://github.com/ergtronix/photolibre/releases/latest)からWindows（`.exe`）・Linux（`.deb`/`.rpm`）それぞれのインストーラーをダウンロードするだけで導入できます）
 
 ---
 
